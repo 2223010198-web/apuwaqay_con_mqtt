@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_vibrate/flutter_vibrate.dart';
 import 'package:geolocator/geolocator.dart'; // Para obtener GPS
 import 'package:url_launcher/url_launcher.dart'; // Para abrir SMS
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -27,6 +28,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // --- LÓGICA SOS (NUEVO) ---
   Future<void> _sendSOS() async {
+    // 0. Recuperar datos del usuario (Nuevo paso)
+    final prefs = await SharedPreferences.getInstance();
+    final String nombre = prefs.getString('userName') ?? "Usuario";
+    final String dni = prefs.getString('userDni') ?? "Sin DNI";
+
     // 1. Verificar permisos de GPS
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -34,46 +40,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (permission == LocationPermission.denied) return;
     }
 
-    // 2. Mostrar carga mientras obtenemos satélites
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Obteniendo coordenadas GPS...")),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Generando alerta con tus datos...")),
+      );
+    }
 
-    // 3. Obtener posición actual
+    // 3. Obtener posición
     Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high
     );
 
-    // 4. Crear mensaje con Link de Google Maps
+    // 4. Mensaje PERSONALIZADO
     String mapsLink = "https://www.google.com/maps/search/?api=1&query=${position.latitude},${position.longitude}";
-    String message = "¡AYUDA! Estoy en zona de riesgo de huayco. Mi ubicación es: $mapsLink";
 
-    // 5. Preparar el SMS (Esquema universal)
+    // El mensaje ahora incluye quién eres:
+    String message = "¡SOS! Soy $nombre (DNI: $dni). Estoy atrapado por el huayco. Ubicación: $mapsLink";
+
+    // 5. Preparar SMS
     final Uri smsUri = Uri(
       scheme: 'sms',
-      path: '999999999', // Aquí iría el número de emergencia configurado
+      path: '999999999',
       queryParameters: <String, String>{
         'body': message,
       },
     );
 
-  // 6. Lanzar la app de mensajes (Código mejorado)
-      try {
-        // Intentamos abrirlo forzando "Aplicación Externa"
-        await launchUrl(smsUri, mode: LaunchMode.externalApplication);
-      } catch (e) {
-        // Si falla, intentamos el método simple
-        final Uri smsUriSimple = Uri.parse("sms:999999999?body=$message");
-        if (await canLaunchUrl(smsUriSimple)) {
-          await launchUrl(smsUriSimple, mode: LaunchMode.externalApplication);
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Error al abrir SMS: $e")),
-            );
-          }
-        }
+    // 6. Lanzar SMS
+    try {
+      await launchUrl(smsUri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      final Uri smsUriSimple = Uri.parse("sms:999999999?body=$message");
+      if (await canLaunchUrl(smsUriSimple)) {
+        await launchUrl(smsUriSimple, mode: LaunchMode.externalApplication);
       }
+    }
   }
 
   void _simulateChange() async {
