@@ -1,9 +1,11 @@
+import 'dart:async'; // Para controlar el tiempo de vibración
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Para el canal nativo
+import 'package:flutter/services.dart';
 import 'package:flutter_vibrate/flutter_vibrate.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:permission_handler/permission_handler.dart'; // <--- OBLIGATORIO
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../../../app_routes.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -14,7 +16,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
-  int alertLevel = 0;
+  // VARIABLES DE ESTADO
+  int alertLevel = 0; // 0=Seguro, 1=Precaución, 2=Peligro
   String userName = "Usuario";
   bool sosEnabled = true;
   bool autoSend = false;
@@ -22,17 +25,27 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   double vibrationIntensity = 0.0;
   String etaHuayco = "";
 
-  // Canal nativo para enviar SMS (El que ya te funciona)
+  // Variable para controlar si faltan permisos
+  bool _missingPermissions = true;
+
+  // Canal nativo SMS
   static const platform = MethodChannel('com.apuwaqay/sms');
+
+  // Notificaciones
+  final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+
+  // Control de Vibración
+  Timer? _vibrationTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadUserData();
+    _initNotifications();
+    _checkPermissionsStatus(); // Verificar permisos al iniciar
 
-    // 1. PEDIR PERMISOS AL ABRIR LA PANTALLA
-    // Esperamos un poco a que la UI cargue para no bloquear el inicio
+    // Pedir permisos iniciales al abrir (con leve retraso para no bloquear UI)
     Future.delayed(const Duration(seconds: 1), () {
       _requestAllPermissions();
     });
@@ -41,57 +54,92 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _stopVibration();
     super.dispose();
   }
 
-  // Detectar si el usuario vuelve a la app desde Ajustes
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && alertLevel == 1) {
-      _checkPermissionsForWarning();
-    }
-  }
-
-  // --- FUNCIÓN PARA PEDIR TODOS LOS PERMISOS ---
-  Future<void> _requestAllPermissions() async {
-    // Pedimos Ubicación, SMS y Teléfono (necesarios para el envío)
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.location,
-      Permission.sms,
-      Permission.phone,
-    ].request();
-
-    // Opcional: Mostrar aviso si algo fue denegado
-    if (statuses[Permission.sms]!.isDenied || statuses[Permission.location]!.isDenied) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("⚠️ Se requieren permisos para el sistema SOS")),
-        );
+    if (state == AppLifecycleState.resumed) {
+      // Verificar permisos cada vez que vuelve a la app
+      _checkPermissionsStatus();
+      if (alertLevel == 1) {
+        _checkPermissionsForWarning();
       }
     }
   }
 
-  // --- VALIDACIÓN ALERTA NARANJA ---
+  // --- 1. CONFIGURACIÓN DE NOTIFICACIONES ---
+  void _initNotifications() async {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+    );
+
+    await _notificationsPlugin.initialize(initializationSettings);
+  }
+
+  Future<void> _showNotification(String title, String body) async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+    AndroidNotificationDetails(
+        'apu_waqay_alerts', 'Alertas de Huayco',
+        channelDescription: 'Notificaciones críticas de seguridad',
+        importance: Importance.max,
+        priority: Priority.high,
+        ticker: 'ticker');
+
+    const NotificationDetails platformChannelSpecifics =
+    NotificationDetails(android: androidPlatformChannelSpecifics);
+
+    await _notificationsPlugin.show(0, title, body, platformChannelSpecifics);
+  }
+
+  // --- 2. GESTIÓN DE PERMISOS ---
+
+  // Función para VERIFICAR si falta algo (sin pedir, solo mirar)
+  Future<void> _checkPermissionsStatus() async {
+    bool loc = await Permission.location.isGranted;
+    bool sms = await Permission.sms.isGranted;
+    bool phone = await Permission.phone.isGranted;
+    bool notif = await Permission.notification.isGranted;
+
+    if (mounted) {
+      setState(() {
+        // Si falta CUALQUIERA de estos, activamos la bandera
+        _missingPermissions = !(loc && sms && phone && notif);
+      });
+    }
+  }
+
+  Future<void> _requestAllPermissions() async {
+    await [
+      Permission.location,
+      Permission.sms,
+      Permission.phone,
+      Permission.notification,
+    ].request();
+
+    // Volvemos a verificar el estado después de pedir
+    _checkPermissionsStatus();
+  }
+
   Future<void> _checkPermissionsForWarning() async {
-    // Solo si el botón SOS está habilitado y estamos en precaución
     if (sosEnabled && alertLevel == 1) {
-      if (await Permission.sms.isDenied || await Permission.location.isDenied) {
-        // Mostrar diálogo explicando por qué pedimos permisos de nuevo
+      if (_missingPermissions) {
         if (mounted) {
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: const Text("⚠️ Precaución Activada"),
-              content: const Text("El nivel de riesgo ha subido. Para que el SOS funcione, necesitamos acceso a SMS y Ubicación."),
+              content: const Text("Necesitamos permisos de SMS y Ubicación para protegerte."),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Cancelar"),
-                ),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
                 ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context);
-                    _requestAllPermissions(); // Pedir de nuevo
+                    _requestAllPermissions();
                   },
                   child: const Text("Dar Permisos"),
                 ),
@@ -103,15 +151,77 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
-  void _loadUserData() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      userName = prefs.getString('userName') ?? "Usuario";
-      sosEnabled = prefs.getBool('sos_enabled') ?? true;
-      autoSend = prefs.getBool('sos_auto_send') ?? false;
-      realTime = prefs.getBool('sos_realtime') ?? false;
-    });
+  // Diálogo manual cuando presionan el triangulo amarillo
+  void _showPermissionWarningDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(children: [Icon(Icons.warning_amber, color: Colors.orange), SizedBox(width: 10), Text("Permisos Faltantes")]),
+        content: const Text("Se debe dar permisos para notificar y recibir alertas, y enviar tu ubicación en caso de huayco."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(context);
+              _requestAllPermissions(); // Intenta pedir permisos de nuevo
+              // Si están denegados permanentemente, abrimos ajustes
+              openAppSettings();
+            },
+            child: const Text("SOLUCIONAR AHORA"),
+          ),
+        ],
+      ),
+    );
   }
+
+  // --- 3. LÓGICA DE VIBRACIÓN ---
+  void _startVibrationPattern({required bool isRedAlert}) {
+    _stopVibration();
+
+    int counter = 0;
+    int maxDuration = isRedAlert ? 10 : 5;
+
+    if (isRedAlert) {
+      _triggerVibrate();
+      _vibrationTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+        counter += 3;
+        if (counter >= maxDuration) {
+          _stopVibration();
+        } else {
+          _triggerVibrate();
+        }
+      });
+    } else {
+      _vibrationTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+        counter++;
+        if (counter >= (maxDuration * 2)) {
+          _stopVibration();
+        } else {
+          Vibrate.feedback(FeedbackType.warning);
+        }
+      });
+    }
+  }
+
+  void _triggerVibrate() async {
+    bool canVibrate = await Vibrate.canVibrate;
+    if (canVibrate) {
+      Vibrate.vibrateWithPauses([
+        const Duration(milliseconds: 100),
+        const Duration(milliseconds: 1000),
+      ]);
+    }
+  }
+
+  void _stopVibration() {
+    if (_vibrationTimer != null) {
+      _vibrationTimer!.cancel();
+      _vibrationTimer = null;
+    }
+  }
+
+  // --- 4. FUNCIONES AUXILIARES ---
 
   Color getStatusColor() {
     if (alertLevel == 0) return Colors.green;
@@ -125,49 +235,61 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     return "¡PELIGRO DE HUAYCO!";
   }
 
+  void _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      userName = prefs.getString('userName') ?? "Usuario";
+      sosEnabled = prefs.getBool('sos_enabled') ?? true;
+      autoSend = prefs.getBool('sos_auto_send') ?? false;
+      realTime = prefs.getBool('sos_realtime') ?? false;
+    });
+  }
+
+  // --- 5. SIMULACIÓN ---
   void _simulateChange() async {
     setState(() {
       alertLevel = (alertLevel + 1) % 3;
+
+      vibrationIntensity = 0.0;
+      etaHuayco = "";
+
       if (alertLevel == 0) {
-        vibrationIntensity = 0.1;
-        etaHuayco = "";
+        _stopVibration();
       } else if (alertLevel == 1) {
         vibrationIntensity = 3.5;
         etaHuayco = "Posible en 45 min";
-        // --- AQUÍ ACTIVAMOS LA VERIFICACIÓN DE PERMISOS ---
+
+        _showNotification("⚠️ ALERTA: Precaución", "Nivel del río subiendo. Mantente alerta.");
+        _startVibrationPattern(isRedAlert: false);
+        _showCautionDialog();
         _checkPermissionsForWarning();
-      } else {
+
+      } else if (alertLevel == 2) {
         vibrationIntensity = 7.8;
         etaHuayco = "IMPACTO EN 15 MIN";
+
+        _showNotification("🚨 PELIGRO: HUAYCO INMINENTE", "Evacúa inmediatamente a zonas altas.");
+        _startVibrationPattern(isRedAlert: true);
+
+        if (autoSend) _sendSOS(isAuto: true);
+        _showEmergencyDialog();
       }
     });
-
-    if (alertLevel == 2) {
-      bool canVibrate = await Vibrate.canVibrate;
-      if (canVibrate) {
-        Vibrate.vibrateWithPauses([const Duration(milliseconds: 500), const Duration(milliseconds: 500)]);
-      }
-      if (autoSend) {
-        _sendSOS(isAuto: true);
-      }
-      _showEmergencyDialog();
-    }
   }
 
-  // --- ENVÍO SOS (NATIVO) ---
+  // --- 6. ENVÍO SOS (NATIVO) ---
   Future<void> _sendSOS({bool isAuto = false}) async {
     if (!isAuto && alertLevel == 0) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sistema Seguro.")));
       return;
     }
 
-    // Doble verificación de permisos antes de enviar
-    if (await Permission.sms.isDenied) {
-      await Permission.sms.request();
-      if (await Permission.sms.isDenied) return; // Si sigue denegado, salimos
-    }
+    if (await Permission.sms.isDenied) await Permission.sms.request();
+    if (await Permission.location.isDenied) await Permission.location.request();
 
-    // Obtener GPS
+    // Verificamos de nuevo para actualizar el icono amarillo
+    _checkPermissionsStatus();
+
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -189,23 +311,17 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     final prefs = await SharedPreferences.getInstance();
     String c1 = prefs.getString('sos_contact_1') ?? "";
     String c2 = prefs.getString('sos_contact_2') ?? "";
-
-    // NÚMEROS DE DESTINO
-    List<String> recipients = ["992934043"]; // TU NÚMERO
+    List<String> recipients = ["992934043"];
     if (c1.isNotEmpty) recipients.add(c1);
     if (c2.isNotEmpty) recipients.add(c2);
 
     String mapsLink = "http://maps.google.com/?q=${position.latitude},${position.longitude}";
     String msg = "¡SOS HUAYCO! Soy $userName. UBICACION: $mapsLink";
 
-    // Enviar por Canal Nativo
     int successCount = 0;
     for (String number in recipients) {
       try {
-        await platform.invokeMethod('sendDirectSMS', {
-          "phone": number,
-          "msg": msg
-        });
+        await platform.invokeMethod('sendDirectSMS', {"phone": number, "msg": msg});
         successCount++;
       } catch (e) {
         debugPrint("❌ Error nativo: $e");
@@ -217,6 +333,29 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         SnackBar(content: Text("✅ Alerta enviada a $successCount contactos."), backgroundColor: Colors.green),
       );
     }
+  }
+
+  // --- DIÁLOGOS ---
+  void _showCautionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.orange[50],
+        title: const Row(children: [Icon(Icons.warning_amber, color: Colors.orange), SizedBox(width: 10), Text("PRECAUCIÓN")]),
+        content: const Text("Se ha detectado actividad inusual. Por favor, mantente atento a las notificaciones."),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () {
+              _stopVibration();
+              Navigator.pop(context);
+            },
+            child: const Text("ACEPTAR", style: TextStyle(color: Colors.white)),
+          )
+        ],
+      ),
+    );
   }
 
   void _showEmergencyDialog() {
@@ -241,7 +380,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              _stopVibration();
+              Navigator.pop(context);
+            },
             child: const Text("ENTENDIDO"),
           )
         ],
@@ -294,12 +436,35 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           IconButton(icon: const Icon(Icons.bug_report), onPressed: _simulateChange, tooltip: "Simular Alerta"),
         ],
       ),
-      floatingActionButton: sosEnabled ? FloatingActionButton.extended(
-        onPressed: () => _sendSOS(isAuto: false),
-        backgroundColor: alertLevel == 0 ? Colors.grey : Colors.red[900],
-        icon: const Icon(Icons.sos, color: Colors.white, size: 30),
-        label: Text(alertLevel == 0 ? "SOS (Inactivo)" : "SOS", style: const TextStyle(color: Colors.white)),
-      ) : null,
+
+      // --- AQUÍ ESTÁ LA MAGIA DE LA UI ---
+      // Usamos un Row para poner el icono de advertencia AL LADO del SOS
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.end, // Alinear a la derecha como un FAB normal
+        children: [
+          // 1. ICONO DE ADVERTENCIA (Solo aparece si faltan permisos y el SOS está activo)
+          if (_missingPermissions && sosEnabled) ...[
+            FloatingActionButton.small(
+              heroTag: "btn_warning", // Tag único para evitar error de Hero
+              backgroundColor: Colors.yellow[700],
+              onPressed: _showPermissionWarningDialog,
+              child: const Icon(Icons.warning_amber, color: Colors.black, size: 28),
+            ),
+            const SizedBox(width: 15), // Espacio entre advertencia y SOS
+          ],
+
+          // 2. BOTÓN SOS ORIGINAL
+          if (sosEnabled)
+            FloatingActionButton.extended(
+              heroTag: "btn_sos",
+              onPressed: () => _sendSOS(isAuto: false),
+              backgroundColor: alertLevel == 0 ? Colors.grey : Colors.red[900],
+              icon: const Icon(Icons.sos, color: Colors.white, size: 30),
+              label: Text(alertLevel == 0 ? "SOS (Inactivo)" : "SOS", style: const TextStyle(color: Colors.white)),
+            ),
+        ],
+      ),
+
       body: Column(
         children: [
           Container(
@@ -340,7 +505,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   _SensorCard(title: "Nivel Río", value: alertLevel == 2 ? "4.5 m" : "1.2 m", unit: "Metros", icon: Icons.waves, isCritical: alertLevel == 2),
                   _SensorCard(title: "Lluvia", value: alertLevel == 2 ? "120 mm" : "0 mm", unit: "Acumulada", icon: Icons.cloud, isCritical: alertLevel == 2),
                   _SensorCard(title: "Vibración", value: vibrationIntensity.toString(), unit: "Intensidad", icon: Icons.vibration, isCritical: vibrationIntensity > 5),
-                  const _SensorCard(title: "Conexión", value: "4G LTE", unit: "Red", icon: Icons.signal_cellular_alt, isCritical: false),
+                  const _SensorCard(title: "Humedad", value: "65%", unit: "Suelo", icon: Icons.grass, isCritical: false),
                 ],
               ),
             ),

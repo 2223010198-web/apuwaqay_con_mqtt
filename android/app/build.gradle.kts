@@ -12,6 +12,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // 1. ACTIVAMOS EL DESUGARING (Línea Nueva)
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -19,9 +21,7 @@ android {
     }
 
     defaultConfig {
-        // ID único de tu aplicación
         applicationId = "com.apuwaqay.apu_waqay"
-
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -30,10 +30,7 @@ android {
 
     buildTypes {
         release {
-            // --- ESTO ES LO QUE NECESITABAS TRADUCIDO ---
-            // Usamos la firma de debug para generar el APK rápido
             signingConfig = signingConfigs.getByName("debug")
-
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -42,4 +39,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// 2. AGREGAMOS LA DEPENDENCIA NECESARIA (Bloque Nuevo al final)
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
