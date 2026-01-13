@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Para el canal nativo
 import 'package:flutter_vibrate/flutter_vibrate.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/services.dart';
-import 'package:telephony/telephony.dart'; // <--- USAMOS LA LIBRERÍA AUTOMÁTICA
+import 'package:permission_handler/permission_handler.dart'; // <--- OBLIGATORIO
 import '../../../app_routes.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -13,7 +13,7 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
   int alertLevel = 0;
   String userName = "Usuario";
   bool sosEnabled = true;
@@ -22,10 +22,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double vibrationIntensity = 0.0;
   String etaHuayco = "";
 
+  // Canal nativo para enviar SMS (El que ya te funciona)
+  static const platform = MethodChannel('com.apuwaqay/sms');
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadUserData();
+
+    // 1. PEDIR PERMISOS AL ABRIR LA PANTALLA
+    // Esperamos un poco a que la UI cargue para no bloquear el inicio
+    Future.delayed(const Duration(seconds: 1), () {
+      _requestAllPermissions();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Detectar si el usuario vuelve a la app desde Ajustes
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && alertLevel == 1) {
+      _checkPermissionsForWarning();
+    }
+  }
+
+  // --- FUNCIÓN PARA PEDIR TODOS LOS PERMISOS ---
+  Future<void> _requestAllPermissions() async {
+    // Pedimos Ubicación, SMS y Teléfono (necesarios para el envío)
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.location,
+      Permission.sms,
+      Permission.phone,
+    ].request();
+
+    // Opcional: Mostrar aviso si algo fue denegado
+    if (statuses[Permission.sms]!.isDenied || statuses[Permission.location]!.isDenied) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("⚠️ Se requieren permisos para el sistema SOS")),
+        );
+      }
+    }
+  }
+
+  // --- VALIDACIÓN ALERTA NARANJA ---
+  Future<void> _checkPermissionsForWarning() async {
+    // Solo si el botón SOS está habilitado y estamos en precaución
+    if (sosEnabled && alertLevel == 1) {
+      if (await Permission.sms.isDenied || await Permission.location.isDenied) {
+        // Mostrar diálogo explicando por qué pedimos permisos de nuevo
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text("⚠️ Precaución Activada"),
+              content: const Text("El nivel de riesgo ha subido. Para que el SOS funcione, necesitamos acceso a SMS y Ubicación."),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Cancelar"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _requestAllPermissions(); // Pedir de nuevo
+                  },
+                  child: const Text("Dar Permisos"),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    }
   }
 
   void _loadUserData() async {
@@ -59,6 +134,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else if (alertLevel == 1) {
         vibrationIntensity = 3.5;
         etaHuayco = "Posible en 45 min";
+        // --- AQUÍ ACTIVAMOS LA VERIFICACIÓN DE PERMISOS ---
+        _checkPermissionsForWarning();
       } else {
         vibrationIntensity = 7.8;
         etaHuayco = "IMPACTO EN 15 MIN";
@@ -77,26 +154,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-// Definimos el canal de comunicación con Kotlin
-  static const platform = MethodChannel('com.apuwaqay/sms');
-
-  // --- FUNCIÓN SOS AUTOMÁTICA (NATIVA) ---
+  // --- ENVÍO SOS (NATIVO) ---
   Future<void> _sendSOS({bool isAuto = false}) async {
-    // Si es manual y seguro, avisar
     if (!isAuto && alertLevel == 0) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sistema Seguro.")));
       return;
     }
 
-    // 1. Usamos Permission Handler para verificar permisos antes de llamar al nativo
-    // (Asegúrate de tener permission_handler en pubspec.yaml e importado)
-    // Si no tienes permission_handler importado, agrégalo: import 'package:permission_handler/permission_handler.dart';
-    // O usa la lógica de telephony para pedir permisos si prefieres, pero permission_handler es mejor.
+    // Doble verificación de permisos antes de enviar
+    if (await Permission.sms.isDenied) {
+      await Permission.sms.request();
+      if (await Permission.sms.isDenied) return; // Si sigue denegado, salimos
+    }
 
-    // Asumimos que telephony ya pidió los permisos al inicio o usamos permission_handler:
-    // await Permission.sms.request();
-
-    // 2. Obtener GPS
+    // Obtener GPS
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -107,7 +178,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enviando alerta nativa...")));
     }
 
-    // 3. Coordenadas
     Position position;
     try {
       position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
@@ -116,11 +186,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    // 4. Preparar Mensaje
     final prefs = await SharedPreferences.getInstance();
     String c1 = prefs.getString('sos_contact_1') ?? "";
     String c2 = prefs.getString('sos_contact_2') ?? "";
 
+    // NÚMEROS DE DESTINO
     List<String> recipients = ["992934043"]; // TU NÚMERO
     if (c1.isNotEmpty) recipients.add(c1);
     if (c2.isNotEmpty) recipients.add(c2);
@@ -128,19 +198,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     String mapsLink = "http://maps.google.com/?q=${position.latitude},${position.longitude}";
     String msg = "¡SOS HUAYCO! Soy $userName. UBICACION: $mapsLink";
 
-    // 5. ENVIAR USANDO CÓDIGO NATIVO (KOTLIN)
+    // Enviar por Canal Nativo
     int successCount = 0;
     for (String number in recipients) {
       try {
-        // Llamamos a la función que creamos en MainActivity.kt
         await platform.invokeMethod('sendDirectSMS', {
           "phone": number,
           "msg": msg
         });
-        debugPrint("✅ SMS enviado nativamente a $number");
         successCount++;
       } catch (e) {
-        debugPrint("❌ Error nativo enviando a $number: $e");
+        debugPrint("❌ Error nativo: $e");
       }
     }
 
@@ -150,6 +218,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
   }
+
   void _showEmergencyDialog() {
     showDialog(
       context: context,
@@ -164,7 +233,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Text("Huayco inminente. ETA: $etaHuayco."),
             const SizedBox(height: 10),
             if (autoSend)
-              const Text("✅ Alerta enviada automáticamente por SMS.", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green))
+              const Text("✅ Alerta enviada automáticamente.", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green))
             else
               const Text("⚠️ Presiona SOS para enviar alerta.", style: TextStyle(fontWeight: FontWeight.bold)),
           ],
