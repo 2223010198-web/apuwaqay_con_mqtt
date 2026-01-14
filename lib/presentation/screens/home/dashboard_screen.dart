@@ -1,5 +1,5 @@
 import 'dart:async'; // Para Streams y Timers
-import 'dart:io'; // <--- NUEVO: Para manejar el archivo de la foto
+import 'dart:io'; // Para manejar el archivo de la foto
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_vibrate/flutter_vibrate.dart';
@@ -7,8 +7,9 @@ import 'package:geolocator/geolocator.dart'; // Tecnología base compatible con 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:image_picker/image_picker.dart'; // <--- NUEVO: Para la cámara
+import 'package:image_picker/image_picker.dart'; // Para la cámara
 import '../../../app_routes.dart';
+import '../../widgets/side_menu.dart'; // <--- IMPORTAMOS EL MENÚ LATERAL REUTILIZABLE
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -29,9 +30,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
   bool _missingPermissions = true;
 
-  // --- VARIABLES DE UBICACIÓN (HUAWEI/ANDROID TECH) ---
+  // --- VARIABLES DE UBICACIÓN ---
   StreamSubscription<Position>? _positionStreamSubscription;
-  Position? _lastKnownPosition; // Guardamos la última ubicación precisa
+  Position? _lastKnownPosition;
   bool _isTracking = false;
 
   static const platform = MethodChannel('com.apuwaqay/sms');
@@ -39,7 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   Timer? _vibrationTimer;
 
   // --- VARIABLE PARA CÁMARA ---
-  final ImagePicker _picker = ImagePicker(); // <--- NUEVO: Inicializamos el picker
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -58,7 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _stopVibration();
-    _stopLocationStream(); // Detener rastreo al cerrar
+    _stopLocationStream();
     super.dispose();
   }
 
@@ -67,19 +68,17 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     if (state == AppLifecycleState.resumed) {
       _checkPermissionsStatus();
       if (alertLevel == 1) _checkPermissionsForWarning();
-      // Reactivar rastreo si estaba encendido
       if (realTime && !_isTracking) _startLocationStream();
     }
   }
 
-  // --- 1. MOTOR DE UBICACIÓN EN TIEMPO REAL (REAL-TIME TRACKING) ---
+  // --- 1. MOTOR DE UBICACIÓN ---
   void _startLocationStream() async {
     if (_isTracking) return;
 
-    // Configuración de alta precisión para Huawei/Honor
     const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high, // Usa GPS + WiFi + Celdas (Mayor precisión)
-      distanceFilter: 10, // Actualizar cada 10 metros (Ahorra batería pero mantiene precisión)
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
     );
 
     try {
@@ -104,7 +103,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
-  // --- 2. CONFIGURACIÓN DE NOTIFICACIONES ---
+  // --- 2. NOTIFICACIONES ---
   void _initNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
     AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -121,12 +120,12 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     await _notificationsPlugin.show(0, title, body, NotificationDetails(android: androidDetails));
   }
 
-  // --- 3. GESTIÓN DE PERMISOS (ACTUALIZADO CON CÁMARA) ---
+  // --- 3. PERMISOS ---
   Future<void> _checkPermissionsStatus() async {
     bool loc = await Permission.location.isGranted;
     bool sms = await Permission.sms.isGranted;
     bool phone = await Permission.phone.isGranted;
-    bool camera = await Permission.camera.isGranted; // <--- NUEVO: Verificar cámara
+    bool camera = await Permission.camera.isGranted;
 
     if (mounted) setState(() => _missingPermissions = !(loc && sms && phone && camera));
   }
@@ -137,7 +136,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       Permission.sms,
       Permission.phone,
       Permission.notification,
-      Permission.camera // <--- NUEVO: Pedir cámara
+      Permission.camera
     ].request();
     _checkPermissionsStatus();
   }
@@ -160,7 +159,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
-  // --- 4. LÓGICA DEL BOTÓN SOS ---
+  // --- 4. LÓGICA SOS ---
   void _handleSosPress() {
     if (alertLevel == 0) {
       _showSafeModeDialog();
@@ -262,17 +261,15 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
-  // --- 6. NUEVA FUNCIONALIDAD: REPORTAR HUAYCO (CÁMARA) ---
+  // --- 6. CÁMARA (REPORTE) ---
   Future<void> _takePhoto() async {
     try {
-      // 1. Abrimos la cámara nativa
       final XFile? photo = await _picker.pickImage(
           source: ImageSource.camera,
-          imageQuality: 50 // Reducir calidad para optimizar envío futuro
+          imageQuality: 50
       );
 
       if (photo != null) {
-        // 2. Si el usuario tomó la foto, mostramos confirmación
         if (!mounted) return;
         _showPhotoConfirmationDialog(File(photo.path));
       }
@@ -292,7 +289,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           children: [
             const Text("¿Deseas enviar esta foto al centro de monitoreo?"),
             const SizedBox(height: 10),
-            // Previsualización de la imagen
             Container(
               height: 150,
               width: double.infinity,
@@ -315,7 +311,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
             label: const Text("ENVIAR"),
             onPressed: () {
               Navigator.pop(context);
-              // AQUÍ IRÁ LA LÓGICA DE SUBIDA AL SERVIDOR
               ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text("✅ Reporte enviado al monitoreo central"), backgroundColor: Colors.green)
               );
@@ -381,7 +376,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     _vibrationTimer = null;
   }
 
-  // --- FUNCIONES DE CARGA Y DIÁLOGOS ---
+  // --- UI & CARGA DE DATOS ---
   void _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -438,26 +433,14 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       ],
     ));
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      // 1. MENÚ LATERAL
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: BoxDecoration(color: getStatusColor()),
-              accountName: Text(userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              accountEmail: const Text("Usuario Verificado"),
-              currentAccountPicture: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.person, size: 40, color: Colors.black54)),
-            ),
-            ListTile(leading: const Icon(Icons.sos, color: Colors.red), title: const Text("Editar SOS"), onTap: () async {Navigator.pop(context); await Navigator.pushNamed(context, AppRoutes.editSos); _loadUserData();}),
-            ListTile(leading: const Icon(Icons.settings), title: const Text("Ajustes"), onTap: () async {Navigator.pop(context); await Navigator.pushNamed(context, AppRoutes.settings); _loadUserData();}),
-          ],
-        ),
-      ),
+
+      // 1. MENÚ LATERAL (USANDO EL COMPONENTE REUTILIZABLE)
+      drawer: const SideMenu(),
 
       // 2. BARRA SUPERIOR
       appBar: AppBar(
@@ -465,20 +448,16 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         backgroundColor: getStatusColor(),
         foregroundColor: Colors.white,
         actions: [
-          // --- NUEVO BOTÓN DE GUÍA ---
           IconButton(
             icon: const Icon(Icons.help_outline, size: 28),
             tooltip: "Guía de Seguridad",
             onPressed: () {
-              // Llamamos al Widget que creamos abajo
               showDialog(
                   context: context,
                   builder: (context) => const SafetyGuideDialog()
               );
             },
           ),
-
-          // Botón existente de simulación
           IconButton(
               icon: const Icon(Icons.bug_report),
               onPressed: _simulateChange,
@@ -487,20 +466,18 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         ],
       ),
 
-      // 3. BOTONES FLOTANTES (EL CAMBIO PRINCIPAL ESTÁ AQUÍ)
+      // 3. BOTONES FLOTANTES
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.end, // Alineados abajo
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-
-          // A. Botón de Advertencia (Solo si faltan permisos)
           if (_missingPermissions && sosEnabled) ...[
             Padding(
               padding: const EdgeInsets.only(right: 10),
               child: FloatingActionButton.small(
                 heroTag: "btn_warning",
                 elevation: 0,
-                backgroundColor: Colors.transparent, // Transparente total
+                backgroundColor: Colors.transparent,
                 highlightElevation: 0,
                 splashColor: Colors.transparent,
                 onPressed: _showPermissionWarningDialog,
@@ -508,20 +485,14 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               ),
             ),
           ],
-
-          // B. NUEVO BOTÓN: REPORTAR HUAYCO (CÁMARA)
-          // Se muestra siempre (puedes condicionarlo si quieres)
           FloatingActionButton(
-            heroTag: "btn_camara", // Tag único obligatorio
-            onPressed: _takePhoto, // Llama a la función de la Parte 2
+            heroTag: "btn_camara",
+            onPressed: _takePhoto,
             backgroundColor: Colors.white,
             tooltip: "Reportar Huayco (Foto)",
             child: const Icon(Icons.camera_alt, color: Colors.black87, size: 28),
           ),
-
-          const SizedBox(width: 15), // Espacio entre Cámara y SOS
-
-          // C. Botón SOS (Original)
+          const SizedBox(width: 15),
           if (sosEnabled)
             FloatingActionButton.extended(
               heroTag: "btn_sos",
@@ -533,10 +504,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         ],
       ),
 
-      // 4. CUERPO DE LA PANTALLA
+      // 4. CUERPO
       body: Column(
         children: [
-          // Cabecera de Estado (Color cambia según alerta)
           Container(
             width: double.infinity, padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(color: getStatusColor(), borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(40), bottomRight: Radius.circular(40)), boxShadow: [BoxShadow(color: getStatusColor().withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 5))]),
@@ -547,29 +517,18 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               if (alertLevel == 2) Text("LLEGADA ESTIMADA: $etaHuayco", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
             ]),
           ),
-
-          // Botón ancho "Ver Ubicaciones"
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton.icon(onPressed: () => Navigator.pushNamed(context, AppRoutes.map), icon: const Icon(Icons.people_alt), label: const Text("Ver Ubicaciones Compartidas"), style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: Colors.white, foregroundColor: Colors.black87)),
           ),
-
-          // Grid de Sensores
           Expanded(
             child: Padding(
-              // Padding inferior grande (100) para que el Scroll no tape los botones flotantes
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
               child: GridView.count(crossAxisCount: 2, crossAxisSpacing: 15, mainAxisSpacing: 15, children: [
                 _SensorCard(title: "Nivel Río", value: alertLevel == 2 ? "4.5 m" : "1.2 m", unit: "Metros", icon: Icons.waves, isCritical: alertLevel == 2),
                 _SensorCard(title: "Lluvia", value: alertLevel == 2 ? "120 mm" : "0 mm", unit: "Acumulada", icon: Icons.cloud, isCritical: alertLevel == 2),
                 _SensorCard(title: "Vibración", value: vibrationIntensity.toString(), unit: "Intensidad", icon: Icons.vibration, isCritical: vibrationIntensity > 5),
-                _SensorCard(
-                    title: "Rastreo",
-                    value: _isTracking ? "ACTIVO" : "INACTIVO",
-                    unit: "GPS",
-                    icon: _isTracking ? Icons.radar : Icons.location_disabled,
-                    isCritical: false
-                ),
+                _SensorCard(title: "Rastreo", value: _isTracking ? "ACTIVO" : "INACTIVO", unit: "GPS", icon: _isTracking ? Icons.radar : Icons.location_disabled, isCritical: false),
               ]),
             ),
           )
@@ -579,7 +538,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 }
 
-// Widget auxiliar para las tarjetas
 class _SensorCard extends StatelessWidget {
   final String title, value, unit;
   final IconData icon;
@@ -591,9 +549,6 @@ class _SensorCard extends StatelessWidget {
   }
 }
 
-
-
-// --- WIDGET NUEVO: GUÍA DE SEGURIDAD (CARRUSEL) ---
 class SafetyGuideDialog extends StatefulWidget {
   const SafetyGuideDialog({super.key});
 
@@ -606,30 +561,10 @@ class _SafetyGuideDialogState extends State<SafetyGuideDialog> {
   int _currentPage = 0;
 
   final List<Map<String, dynamic>> _guideSteps = [
-    {
-      "title": "1. PREPÁRATE",
-      "desc": "Identifica las rutas de evacuación y zonas seguras en zonas altas. Ten lista tu MOCHILA DE EMERGENCIA.",
-      "icon": Icons.backpack,
-      "color": Colors.orange
-    },
-    {
-      "title": "2. ALERTA",
-      "desc": "Si escuchas sirenas o notas subida del nivel del río, NO cruces el cauce y aléjate de las riberas inmediatamente.",
-      "icon": Icons.notifications_active,
-      "color": Colors.red
-    },
-    {
-      "title": "3. EVACÚA",
-      "desc": "Dirígete a los puntos de reunión seguros. Ayuda a niños, ancianos y personas con discapacidad.",
-      "icon": Icons.directions_run,
-      "color": Colors.blue
-    },
-    {
-      "title": "4. MANTENTE A SALVO",
-      "desc": "No regreses a tu casa hasta que las autoridades (INDECI) indiquen que el peligro ha pasado.",
-      "icon": Icons.health_and_safety,
-      "color": Colors.green
-    },
+    { "title": "1. PREPÁRATE", "desc": "Identifica las rutas de evacuación y zonas seguras en zonas altas. Ten lista tu MOCHILA DE EMERGENCIA.", "icon": Icons.backpack, "color": Colors.orange },
+    { "title": "2. ALERTA", "desc": "Si escuchas sirenas o notas subida del nivel del río, NO cruces el cauce y aléjate de las riberas inmediatamente.", "icon": Icons.notifications_active, "color": Colors.red },
+    { "title": "3. EVACÚA", "desc": "Dirígete a los puntos de reunión seguros. Ayuda a niños, ancianos y personas con discapacidad.", "icon": Icons.directions_run, "color": Colors.blue },
+    { "title": "4. MANTENTE A SALVO", "desc": "No regreses a tu casa hasta que las autoridades (INDECI) indiquen que el peligro ha pasado.", "icon": Icons.health_and_safety, "color": Colors.green },
   ];
 
   @override
@@ -637,19 +572,12 @@ class _SafetyGuideDialogState extends State<SafetyGuideDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
-        // CAMBIO 1: Aumentamos la altura a 450 (antes 400) para dar más aire
         height: 450,
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // Título fijo arriba
-            const Text("¿Qué hacer ante un Huayco?",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
+            const Text("¿Qué hacer ante un Huayco?", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
             const SizedBox(height: 10),
-
-            // Carrusel
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
@@ -657,67 +585,22 @@ class _SafetyGuideDialogState extends State<SafetyGuideDialog> {
                 onPageChanged: (index) => setState(() => _currentPage = index),
                 itemBuilder: (context, index) {
                   final step = _guideSteps[index];
-                  // CAMBIO 2: Agregamos SingleChildScrollView + Center
-                  // Esto evita el overflow si el texto es muy largo
-                  return Center(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: step['color'].withOpacity(0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(step['icon'], size: 60, color: step['color']),
-                          ),
-                          const SizedBox(height: 20),
-                          Text(step['title'], style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: step['color'])),
-                          const SizedBox(height: 10),
-                          Text(step['desc'], textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, height: 1.4)),
-                        ],
-                      ),
-                    ),
-                  );
+                  return Center(child: SingleChildScrollView(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: step['color'].withOpacity(0.1), shape: BoxShape.circle), child: Icon(step['icon'], size: 60, color: step['color'])),
+                    const SizedBox(height: 20),
+                    Text(step['title'], style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: step['color'])),
+                    const SizedBox(height: 10),
+                    Text(step['desc'], textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, height: 1.4)),
+                  ])));
                 },
               ),
             ),
-
-            // Indicadores (Puntitos)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(_guideSteps.length, (index) => Container(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: _currentPage == index ? 12 : 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: _currentPage == index ? Colors.blue : Colors.grey[300],
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              )),
-            ),
-
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(_guideSteps.length, (index) => Container(margin: const EdgeInsets.symmetric(horizontal: 4), width: _currentPage == index ? 12 : 8, height: 8, decoration: BoxDecoration(color: _currentPage == index ? Colors.blue : Colors.grey[300], borderRadius: BorderRadius.circular(4))))),
             const SizedBox(height: 15),
-
-            // Botón Siguiente
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  if (_currentPage < _guideSteps.length - 1) {
-                    _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
-                  } else {
-                    Navigator.pop(context);
-                  }
-                },
-                child: Text(_currentPage < _guideSteps.length - 1 ? "SIGUIENTE" : "ENTENDIDO"),
-              ),
-            )
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () { if (_currentPage < _guideSteps.length - 1) { _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn); } else { Navigator.pop(context); } }, child: Text(_currentPage < _guideSteps.length - 1 ? "SIGUIENTE" : "ENTENDIDO"))),
           ],
         ),
       ),
     );
   }
 }
-
