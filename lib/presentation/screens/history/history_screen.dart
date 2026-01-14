@@ -139,7 +139,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   controller: _searchController,
                   onChanged: _filterEvents,
                   decoration: const InputDecoration(
-                    hintText: "Buscar por lugar (ej: Chosica)...",
+                    hintText: "Buscar por lugar",
                     prefixIcon: Icon(Icons.search, color: Colors.grey),
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(vertical: 15),

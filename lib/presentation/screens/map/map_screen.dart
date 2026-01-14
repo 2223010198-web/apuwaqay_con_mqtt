@@ -49,26 +49,38 @@ class _MapScreenState extends State<MapScreen> {
     ApuZone(
       name: "VMT - Quebrada",
       sensorLocation: const LatLng(-12.155375, -76.923746),
+// ZONA ROJA: El cauce natural del huayco (Peligro Muy Alto)
       redZone: [
-        const LatLng(-12.154000, -76.923000),
-        const LatLng(-12.155375, -76.923746),
-        const LatLng(-12.157000, -76.924500),
-        const LatLng(-12.158500, -76.925000),
-        const LatLng(-12.158000, -76.923000),
-        const LatLng(-12.154500, -76.922000),
+        const LatLng(-12.148000, -76.912500), // Inicio (Parte Alta)
+        const LatLng(-12.150500, -76.915200), // Sensor
+        const LatLng(-12.153200, -76.918500), // Curva del cauce
+        const LatLng(-12.156800, -76.921500), // Zona media
+        const LatLng(-12.160500, -76.924800), // Desembocadura
+        const LatLng(-12.160000, -76.925500), // Ancho del cauce (izq)
+        const LatLng(-12.156000, -76.922500), // Retorno borde izq
+        const LatLng(-12.152500, -76.919000),
+        const LatLng(-12.148500, -76.913500), // Cierre polígono
       ],
+
+      // 🟠 ZONA NARANJA: LADERAS INESTABLES (Asentamientos en pendiente)
+      // Zonas de alto riesgo por deslizamiento o desborde lateral
       orangeZone: [
-        const LatLng(-12.153000, -76.921000),
-        const LatLng(-12.156000, -76.922000),
-        const LatLng(-12.159000, -76.926000),
-        const LatLng(-12.160000, -76.920000),
-        const LatLng(-12.153000, -76.919000),
+        const LatLng(-12.149000, -76.911000), // Ladera Derecha Alta
+        const LatLng(-12.154000, -76.917000),
+        const LatLng(-12.158000, -76.921000),
+        const LatLng(-12.158500, -76.920000), // Borde externo
+        const LatLng(-12.154500, -76.916000),
+        const LatLng(-12.150000, -76.910000),
       ],
+
+      // 🟢 ZONA VERDE: PUNTOS DE REUNIÓN SEGUROS (Lozas y Colegios)
+      // Áreas planas alejadas del cauce principal
       greenZone: [
-        const LatLng(-12.152000, -76.925000),
-        const LatLng(-12.152000, -76.927000),
-        const LatLng(-12.154000, -76.927000),
-        const LatLng(-12.154000, -76.925000),
+        // Polígono 1: Loza Deportiva Segura (Ejemplo)
+        const LatLng(-12.162000, -76.926000),
+        const LatLng(-12.162000, -76.928000),
+        const LatLng(-12.164000, -76.928000),
+        const LatLng(-12.164000, -76.926000),
       ],
     ),
 

@@ -14,7 +14,7 @@ dependencies:
   # --- Permisos y Telefonía ---
   telephony: ^0.2.0
   permission_handler: ^11.3.0
-
+  image_picker: ^1.0.7
   # --- UI & Mapas ---
   cupertino_icons: ^1.0.8
   font_awesome_flutter: ^10.6.0

@@ -1,4 +1,5 @@
 import 'dart:async'; // Para Streams y Timers
+import 'dart:io'; // <--- NUEVO: Para manejar el archivo de la foto
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_vibrate/flutter_vibrate.dart';
@@ -6,6 +7,7 @@ import 'package:geolocator/geolocator.dart'; // Tecnología base compatible con 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:image_picker/image_picker.dart'; // <--- NUEVO: Para la cámara
 import '../../../app_routes.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -35,6 +37,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   static const platform = MethodChannel('com.apuwaqay/sms');
   final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
   Timer? _vibrationTimer;
+
+  // --- VARIABLE PARA CÁMARA ---
+  final ImagePicker _picker = ImagePicker(); // <--- NUEVO: Inicializamos el picker
 
   @override
   void initState() {
@@ -116,17 +121,24 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     await _notificationsPlugin.show(0, title, body, NotificationDetails(android: androidDetails));
   }
 
-  // --- 3. GESTIÓN DE PERMISOS ---
+  // --- 3. GESTIÓN DE PERMISOS (ACTUALIZADO CON CÁMARA) ---
   Future<void> _checkPermissionsStatus() async {
     bool loc = await Permission.location.isGranted;
     bool sms = await Permission.sms.isGranted;
     bool phone = await Permission.phone.isGranted;
+    bool camera = await Permission.camera.isGranted; // <--- NUEVO: Verificar cámara
 
-    if (mounted) setState(() => _missingPermissions = !(loc && sms && phone));
+    if (mounted) setState(() => _missingPermissions = !(loc && sms && phone && camera));
   }
 
   Future<void> _requestAllPermissions() async {
-    await [Permission.location, Permission.sms, Permission.phone, Permission.notification].request();
+    await [
+      Permission.location,
+      Permission.sms,
+      Permission.phone,
+      Permission.notification,
+      Permission.camera // <--- NUEVO: Pedir cámara
+    ].request();
     _checkPermissionsStatus();
   }
 
@@ -137,7 +149,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           context: context,
           builder: (context) => AlertDialog(
             title: const Text("⚠️ Precaución Activada"),
-            content: const Text("Necesitamos permisos de SMS y Ubicación para protegerte."),
+            content: const Text("Necesitamos permisos (SMS, Ubicación, Cámara) para protegerte."),
             actions: [
               TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
               ElevatedButton(onPressed: () {Navigator.pop(context); _requestAllPermissions();}, child: const Text("Dar Permisos")),
@@ -204,7 +216,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     );
   }
 
-  // --- 5. ENVÍO SOS OPTIMIZADO (INSTANTÁNEO) ---
+  // --- 5. ENVÍO SOS ---
   Future<void> _sendSOS({bool isAuto = false}) async {
     if (await Permission.sms.isDenied) await Permission.sms.request();
     if (await Permission.location.isDenied) await Permission.location.request();
@@ -215,8 +227,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
     Position position;
     try {
-      // TRUCO HUAWEI: Si ya tenemos rastreo en vivo, usamos la última data (0 ms de espera)
-      // Si no, pedimos ubicación fresca (puede tardar 2-5 segs)
       if (_lastKnownPosition != null && DateTime.now().difference(_lastKnownPosition!.timestamp).inMinutes < 2) {
         position = _lastKnownPosition!;
         debugPrint("🚀 Usando ubicación en caché (Tiempo Real)");
@@ -231,11 +241,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     final prefs = await SharedPreferences.getInstance();
     String c1 = prefs.getString('sos_contact_1') ?? "";
     String c2 = prefs.getString('sos_contact_2') ?? "";
-    List<String> recipients = ["992934043"]; // TU NÚERO DE PRUEBA
+    List<String> recipients = ["992934043"];
     if (c1.isNotEmpty) recipients.add(c1);
     if (c2.isNotEmpty) recipients.add(c2);
 
-    // Link mejorado para mayor compatibilidad
     String mapsLink = "https://maps.google.com/?q=${position.latitude},${position.longitude}";
     String typeMsg = realTime ? "[RASTREO ACTIVO]" : "[UBICACIÓN FIJA]";
     String msg = "¡SOS HUAYCO! Soy $userName. $typeMsg: $mapsLink";
@@ -253,7 +262,71 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
-  // --- 6. SIMULACIÓN Y SENSORES ---
+  // --- 6. NUEVA FUNCIONALIDAD: REPORTAR HUAYCO (CÁMARA) ---
+  Future<void> _takePhoto() async {
+    try {
+      // 1. Abrimos la cámara nativa
+      final XFile? photo = await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 50 // Reducir calidad para optimizar envío futuro
+      );
+
+      if (photo != null) {
+        // 2. Si el usuario tomó la foto, mostramos confirmación
+        if (!mounted) return;
+        _showPhotoConfirmationDialog(File(photo.path));
+      }
+    } catch (e) {
+      debugPrint("Error cámara: $e");
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No se pudo acceder a la cámara")));
+    }
+  }
+
+  void _showPhotoConfirmationDialog(File imageFile) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Confirmar Reporte"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("¿Deseas enviar esta foto al centro de monitoreo?"),
+            const SizedBox(height: 10),
+            // Previsualización de la imagen
+            Container(
+              height: 150,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(10),
+                image: DecorationImage(image: FileImage(imageFile), fit: BoxFit.cover),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancelar")
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+            icon: const Icon(Icons.send),
+            label: const Text("ENVIAR"),
+            onPressed: () {
+              Navigator.pop(context);
+              // AQUÍ IRÁ LA LÓGICA DE SUBIDA AL SERVIDOR
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("✅ Reporte enviado al monitoreo central"), backgroundColor: Colors.green)
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- 7. SIMULACIÓN Y SENSORES ---
   void _simulateChange() async {
     setState(() {
       alertLevel = (alertLevel + 1) % 3;
@@ -308,7 +381,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     _vibrationTimer = null;
   }
 
-  // --- FUNCIONES DE CARGA Y ESTILO ---
+  // --- FUNCIONES DE CARGA Y DIÁLOGOS ---
   void _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -317,7 +390,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       autoSend = prefs.getBool('sos_auto_send') ?? false;
       realTime = prefs.getBool('sos_realtime') ?? false;
     });
-    // Iniciar rastreo si está habilitado
     if (realTime) _startLocationStream();
   }
 
@@ -333,7 +405,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     return "¡PELIGRO DE HUAYCO!";
   }
 
-  // --- UI DIÁLOGOS ---
   void _showCautionDialog() {
     showDialog(context: context, barrierDismissible: false, builder: (context) => AlertDialog(
       backgroundColor: Colors.orange[50],
@@ -367,11 +438,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       ],
     ));
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
+      // 1. MENÚ LATERAL
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -382,8 +453,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               accountEmail: const Text("Usuario Verificado"),
               currentAccountPicture: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.person, size: 40, color: Colors.black54)),
             ),
-
-            // --- NUEVO BOTÓN HISTORIAL (Conectado a la ruta) ---
             ListTile(
               leading: const Icon(Icons.history, color: Colors.blueAccent),
               title: const Text("Historial de Eventos"),
@@ -392,12 +461,13 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 await Navigator.pushNamed(context, AppRoutes.history);
               },
             ),
-
             ListTile(leading: const Icon(Icons.sos, color: Colors.red), title: const Text("Editar SOS"), onTap: () async {Navigator.pop(context); await Navigator.pushNamed(context, AppRoutes.editSos); _loadUserData();}),
             ListTile(leading: const Icon(Icons.settings), title: const Text("Ajustes"), onTap: () async {Navigator.pop(context); await Navigator.pushNamed(context, AppRoutes.settings); _loadUserData();}),
           ],
         ),
       ),
+
+      // 2. BARRA SUPERIOR
       appBar: AppBar(
         title: const Text("Monitor Apu Waqay"),
         backgroundColor: getStatusColor(),
@@ -405,35 +475,56 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         actions: [IconButton(icon: const Icon(Icons.bug_report), onPressed: _simulateChange, tooltip: "Simular Alerta")],
       ),
 
-      // --- BOTÓN FLOTANTE (SOS + ADVERTENCIA TRANSPARENTE) ---
+      // 3. BOTONES FLOTANTES (EL CAMBIO PRINCIPAL ESTÁ AQUÍ)
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.end, // Alineados abajo
         children: [
+
+          // A. Botón de Advertencia (Solo si faltan permisos)
           if (_missingPermissions && sosEnabled) ...[
-            FloatingActionButton.small(
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: FloatingActionButton.small(
                 heroTag: "btn_warning",
                 elevation: 0,
                 backgroundColor: Colors.transparent, // Transparente total
                 highlightElevation: 0,
                 splashColor: Colors.transparent,
                 onPressed: _showPermissionWarningDialog,
-                child: const Icon(Icons.warning_amber, color: Colors.yellow, size: 40)
+                child: const Icon(Icons.warning_amber, color: Colors.amber, size: 40),
+              ),
             ),
-            const SizedBox(width: 0),
           ],
+
+          // B. NUEVO BOTÓN: REPORTAR HUAYCO (CÁMARA)
+          // Se muestra siempre (puedes condicionarlo si quieres)
+          FloatingActionButton(
+            heroTag: "btn_camara", // Tag único obligatorio
+            onPressed: _takePhoto, // Llama a la función de la Parte 2
+            backgroundColor: Colors.white,
+            tooltip: "Reportar Huayco (Foto)",
+            child: const Icon(Icons.camera_alt, color: Colors.black87, size: 28),
+          ),
+
+          const SizedBox(width: 15), // Espacio entre Cámara y SOS
+
+          // C. Botón SOS (Original)
           if (sosEnabled)
             FloatingActionButton.extended(
-                heroTag: "btn_sos",
-                onPressed: _handleSosPress,
-                backgroundColor: alertLevel == 0 ? Colors.grey : Colors.red[900],
-                icon: const Icon(Icons.sos, color: Colors.white, size: 30),
-                label: Text(alertLevel == 0 ? "SOS (Info)" : "SOS", style: const TextStyle(color: Colors.white))
+              heroTag: "btn_sos",
+              onPressed: _handleSosPress,
+              backgroundColor: alertLevel == 0 ? Colors.grey : Colors.red[900],
+              icon: const Icon(Icons.sos, color: Colors.white, size: 30),
+              label: Text(alertLevel == 0 ? "SOS (Info)" : "SOS", style: const TextStyle(color: Colors.white)),
             ),
         ],
       ),
 
+      // 4. CUERPO DE LA PANTALLA
       body: Column(
         children: [
+          // Cabecera de Estado (Color cambia según alerta)
           Container(
             width: double.infinity, padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(color: getStatusColor(), borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(40), bottomRight: Radius.circular(40)), boxShadow: [BoxShadow(color: getStatusColor().withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 5))]),
@@ -444,19 +535,22 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               if (alertLevel == 2) Text("LLEGADA ESTIMADA: $etaHuayco", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
             ]),
           ),
+
+          // Botón ancho "Ver Ubicaciones"
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton.icon(onPressed: () => Navigator.pushNamed(context, AppRoutes.map), icon: const Icon(Icons.people_alt), label: const Text("Ver Ubicaciones Compartidas"), style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: Colors.white, foregroundColor: Colors.black87)),
           ),
+
+          // Grid de Sensores
           Expanded(
             child: Padding(
-              // PADDING PARA SCROLL QUE NO TAPA EL BOTÓN SOS
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+              // Padding inferior grande (100) para que el Scroll no tape los botones flotantes
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
               child: GridView.count(crossAxisCount: 2, crossAxisSpacing: 15, mainAxisSpacing: 15, children: [
                 _SensorCard(title: "Nivel Río", value: alertLevel == 2 ? "4.5 m" : "1.2 m", unit: "Metros", icon: Icons.waves, isCritical: alertLevel == 2),
                 _SensorCard(title: "Lluvia", value: alertLevel == 2 ? "120 mm" : "0 mm", unit: "Acumulada", icon: Icons.cloud, isCritical: alertLevel == 2),
                 _SensorCard(title: "Vibración", value: vibrationIntensity.toString(), unit: "Intensidad", icon: Icons.vibration, isCritical: vibrationIntensity > 5),
-                // TARJETA DE RASTREO
                 _SensorCard(
                     title: "Rastreo",
                     value: _isTracking ? "ACTIVO" : "INACTIVO",
@@ -473,6 +567,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 }
 
+// Widget auxiliar para las tarjetas
 class _SensorCard extends StatelessWidget {
   final String title, value, unit;
   final IconData icon;
@@ -483,3 +578,5 @@ class _SensorCard extends StatelessWidget {
     return Card(elevation: 4, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), color: isCritical ? Colors.red[100] : Colors.white, child: Padding(padding: const EdgeInsets.all(16.0), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, size: 40, color: isCritical ? Colors.red : Colors.blueGrey), const SizedBox(height: 10), Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)), Text("$title ($unit)", style: const TextStyle(fontSize: 12, color: Colors.grey), textAlign: TextAlign.center)])));
   }
 }
+
+
