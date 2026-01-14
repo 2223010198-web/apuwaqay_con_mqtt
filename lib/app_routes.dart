@@ -8,8 +8,8 @@ import 'presentation/screens/settings/settings_screen.dart';
 import 'presentation/screens/history/history_screen.dart';
 
 class AppRoutes {
-  static const String splash = '/';
-  static const String login = '/login'; // <--- RUTA NUEVA
+ // static const String splash = '/';
+  static const String login = '/'; // <--- RUTA NUEVA
   static const String home = '/home';
   static const String map = '/map';
   static const String editSos = '/edit_sos'; // Nueva ruta
@@ -17,7 +17,7 @@ class AppRoutes {
   static const String history = '/history';
 
   static Map<String, WidgetBuilder> get routes => {
-    splash: (context) => const SplashScreen(),
+    //   splash: (context) => const SplashScreen(),
     login: (context) => const LoginScreen(), // <--- REGISTRO NUEVO
     home: (context) => const HomeLayout(),
     map: (context) => const MapScreen(),
