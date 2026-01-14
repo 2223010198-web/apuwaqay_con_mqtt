@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'app_routes.dart'; // Importamos el archivo de rutas que acabas de crear
+import 'app_routes.dart';
 
 void main() {
   runApp(const ApuWaqayApp());
@@ -14,20 +14,19 @@ class ApuWaqayApp extends StatelessWidget {
       title: 'Apu Waqay',
       debugShowCheckedModeBanner: false,
 
-      // TEMA: Aquí definimos los colores de Huawei una sola vez
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFCF0A2C), // Rojo Huawei
+          seedColor: const Color(0xFFCF0A2C),
           primary: const Color(0xFFCF0A2C),
-          secondary: Colors.amber, // Para alertas
+          secondary: Colors.amber,
         ),
         useMaterial3: true,
-        fontFamily: 'Roboto', // Fuente estándar limpia
+        fontFamily: 'Roboto',
       ),
 
-      // NAVEGACIÓN: Usamos el sistema de rutas
-      initialRoute: AppRoutes.splash, // La app arranca aquí
-      routes: AppRoutes.routes,       // Cargamos el mapa de rutas
+
+      initialRoute: AppRoutes.splash,
+      routes: AppRoutes.routes,
     );
   }
 }

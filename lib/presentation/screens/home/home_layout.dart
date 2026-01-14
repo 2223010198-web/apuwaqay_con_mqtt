@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dashboard_screen.dart'; // Importamos el dashboard
 import '../map/map_screen.dart'; // Importamos el mapa
+import '../history/history_screen.dart';
 
 class HomeLayout extends StatefulWidget {
   const HomeLayout({super.key});
@@ -16,7 +17,7 @@ class _HomeLayoutState extends State<HomeLayout> {
   final List<Widget> _pages = [
     const DashboardScreen(), // 0: Monitor
     const MapScreen(),       // 1: Mapa
-    const Center(child: Text("Historial (En construcción)")), // 2: Historial
+    const HistoryScreen(),
   ];
 
   @override

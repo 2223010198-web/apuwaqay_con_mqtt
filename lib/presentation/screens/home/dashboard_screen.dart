@@ -395,6 +395,14 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               accountEmail: const Text("Usuario Verificado"),
               currentAccountPicture: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.person, size: 40, color: Colors.black54)),
             ),
+            ListTile(
+              leading: const Icon(Icons.history, color: Colors.blueAccent),
+              title: const Text("Historial de Eventos"),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.pushNamed(context, AppRoutes.history);
+              },
+            ),
             ListTile(leading: const Icon(Icons.sos, color: Colors.red), title: const Text("Editar SOS"), onTap: () async {Navigator.pop(context); await Navigator.pushNamed(context, AppRoutes.editSos); _loadUserData();}),
             ListTile(leading: const Icon(Icons.settings), title: const Text("Ajustes"), onTap: () async {Navigator.pop(context); await Navigator.pushNamed(context, AppRoutes.settings); _loadUserData();}),
           ],

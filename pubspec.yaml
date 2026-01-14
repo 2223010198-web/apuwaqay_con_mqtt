@@ -44,12 +44,13 @@ dependencies:
   flutter_map: ^6.1.0       # El mapa gratuito
   latlong2: ^0.9.0          # Para manejar coordenadas
   http: ^1.2.0              # Para hacer las búsquedas de direcciones
+  url_launcher: ^6.2.4
 
   # --- Hardware & Servicios ---
   geolocator: ^10.1.0       # GPS
   camera: ^0.10.5           # Fotos reporte
  # flutter_sms: ^2.3.3       # Enviar SMS SOS
-  url_launcher: ^6.2.1      # Abrir WhatsApp o llamar
+#  url_launcher: ^6.2.1      # Abrir WhatsApp o llamar
   audioplayers: ^5.2.1      # Sonido Alarma
   flutter_vibrate: ^1.3.0
 

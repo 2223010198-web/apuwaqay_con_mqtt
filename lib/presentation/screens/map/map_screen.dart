@@ -204,15 +204,6 @@ class _MapScreenState extends State<MapScreen> {
                 Row(
                   children: [
                     // Botón Atrás
-                    CircleAvatar(
-                      backgroundColor: Colors.white,
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.black),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-
                     // Buscador
                     Expanded(
                       child: Container(
@@ -313,6 +304,14 @@ class _MapScreenState extends State<MapScreen> {
                   _legendItem(Colors.red, "Peligro Alto"),
                   _legendItem(Colors.orange, "Riesgo Medio"),
                   _legendItem(Colors.green, "Zona Segura"),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Image.asset('assets/images/logo.png', width: 20, height: 20),
+                      const SizedBox(width: 5),
+                      const Text("Apu Waqay", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                    ],
+                  )
                 ],
               ),
             ),
