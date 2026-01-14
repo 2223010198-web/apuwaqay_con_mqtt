@@ -68,7 +68,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 
   // --- 1. MOTOR DE UBICACIÓN EN TIEMPO REAL (REAL-TIME TRACKING) ---
-  // Esta función usa la tecnología Fused Location (compatible con HMS y GMS)
   void _startLocationStream() async {
     if (_isTracking) return;
 
@@ -85,7 +84,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           _lastKnownPosition = position;
           _isTracking = true;
         });
-        // Aquí podrías enviar la data a un servidor si quisieras tracking web
         debugPrint("📍 Rastreo Activo: ${position.latitude}, ${position.longitude}");
       });
     } catch (e) {
@@ -98,17 +96,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       _positionStreamSubscription!.cancel();
       _positionStreamSubscription = null;
       setState(() => _isTracking = false);
-    }
-  }
-
-  void _toggleRealTimeTracking(bool value) {
-    setState(() {
-      realTime = value;
-    });
-    if (value) {
-      _startLocationStream();
-    } else {
-      _stopLocationStream();
     }
   }
 
@@ -244,7 +231,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     final prefs = await SharedPreferences.getInstance();
     String c1 = prefs.getString('sos_contact_1') ?? "";
     String c2 = prefs.getString('sos_contact_2') ?? "";
-    List<String> recipients = ["992934043"]; // TU NÚMERO DE PRUEBA
+    List<String> recipients = ["992934043"]; // TU NÚERO DE PRUEBA
     if (c1.isNotEmpty) recipients.add(c1);
     if (c2.isNotEmpty) recipients.add(c2);
 
@@ -395,6 +382,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               accountEmail: const Text("Usuario Verificado"),
               currentAccountPicture: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.person, size: 40, color: Colors.black54)),
             ),
+
+            // --- NUEVO BOTÓN HISTORIAL (Conectado a la ruta) ---
             ListTile(
               leading: const Icon(Icons.history, color: Colors.blueAccent),
               title: const Text("Historial de Eventos"),
@@ -403,6 +392,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 await Navigator.pushNamed(context, AppRoutes.history);
               },
             ),
+
             ListTile(leading: const Icon(Icons.sos, color: Colors.red), title: const Text("Editar SOS"), onTap: () async {Navigator.pop(context); await Navigator.pushNamed(context, AppRoutes.editSos); _loadUserData();}),
             ListTile(leading: const Icon(Icons.settings), title: const Text("Ajustes"), onTap: () async {Navigator.pop(context); await Navigator.pushNamed(context, AppRoutes.settings); _loadUserData();}),
           ],
@@ -414,16 +404,34 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         foregroundColor: Colors.white,
         actions: [IconButton(icon: const Icon(Icons.bug_report), onPressed: _simulateChange, tooltip: "Simular Alerta")],
       ),
+
+      // --- BOTÓN FLOTANTE (SOS + ADVERTENCIA TRANSPARENTE) ---
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           if (_missingPermissions && sosEnabled) ...[
-            FloatingActionButton.small(heroTag: "btn_warning", elevation: 0, backgroundColor: Colors.transparent, highlightElevation: 0, splashColor: Colors.transparent, onPressed: _showPermissionWarningDialog, child: const Icon(Icons.warning_amber, color: Colors.yellow, size: 40)),
+            FloatingActionButton.small(
+                heroTag: "btn_warning",
+                elevation: 0,
+                backgroundColor: Colors.transparent, // Transparente total
+                highlightElevation: 0,
+                splashColor: Colors.transparent,
+                onPressed: _showPermissionWarningDialog,
+                child: const Icon(Icons.warning_amber, color: Colors.yellow, size: 40)
+            ),
             const SizedBox(width: 0),
           ],
-          if (sosEnabled) FloatingActionButton.extended(heroTag: "btn_sos", onPressed: _handleSosPress, backgroundColor: alertLevel == 0 ? Colors.grey : Colors.red[900], icon: const Icon(Icons.sos, color: Colors.white, size: 30), label: Text(alertLevel == 0 ? "SOS (Info)" : "SOS", style: const TextStyle(color: Colors.white))),
+          if (sosEnabled)
+            FloatingActionButton.extended(
+                heroTag: "btn_sos",
+                onPressed: _handleSosPress,
+                backgroundColor: alertLevel == 0 ? Colors.grey : Colors.red[900],
+                icon: const Icon(Icons.sos, color: Colors.white, size: 30),
+                label: Text(alertLevel == 0 ? "SOS (Info)" : "SOS", style: const TextStyle(color: Colors.white))
+            ),
         ],
       ),
+
       body: Column(
         children: [
           Container(
@@ -442,12 +450,13 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           ),
           Expanded(
             child: Padding(
+              // PADDING PARA SCROLL QUE NO TAPA EL BOTÓN SOS
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
               child: GridView.count(crossAxisCount: 2, crossAxisSpacing: 15, mainAxisSpacing: 15, children: [
                 _SensorCard(title: "Nivel Río", value: alertLevel == 2 ? "4.5 m" : "1.2 m", unit: "Metros", icon: Icons.waves, isCritical: alertLevel == 2),
                 _SensorCard(title: "Lluvia", value: alertLevel == 2 ? "120 mm" : "0 mm", unit: "Acumulada", icon: Icons.cloud, isCritical: alertLevel == 2),
                 _SensorCard(title: "Vibración", value: vibrationIntensity.toString(), unit: "Intensidad", icon: Icons.vibration, isCritical: vibrationIntensity > 5),
-                // TARJETA INTELIGENTE: Muestra si el rastreo Huawei/Android está activo
+                // TARJETA DE RASTREO
                 _SensorCard(
                     title: "Rastreo",
                     value: _isTracking ? "ACTIVO" : "INACTIVO",

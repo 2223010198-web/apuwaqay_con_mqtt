@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart'; // Para abrir webs/teléfono
 import 'package:latlong2/latlong.dart'; // Para pasar coordenadas al mapa
-import '../../../app_routes.dart';
 
 // Modelo de datos simple para un evento histórico
 class HuaycoEvent {
@@ -25,7 +24,11 @@ class HuaycoEvent {
 }
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  // --- VARIABLE CLAVE PARA CORREGIR EL ERROR ---
+  // Esta función permite comunicarse con el HomeLayout para cambiar al mapa
+  final Function(LatLng)? onMapRequest;
+
+  const HistoryScreen({super.key, this.onMapRequest});
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -167,7 +170,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
               physics: const NeverScrollableScrollPhysics(), // El scroll lo hace el padre
               itemCount: _filteredEvents.length,
               itemBuilder: (context, index) {
-                return _EventCard(event: _filteredEvents[index]);
+                return _EventCard(
+                  event: _filteredEvents[index],
+                  // Aquí pasamos la función recibida al widget hijo
+                  onMap: widget.onMapRequest,
+                );
               },
             ),
 
@@ -265,8 +272,10 @@ class _EmergencyButton extends StatelessWidget {
 // WIDGET: TARJETA DE EVENTO
 class _EventCard extends StatelessWidget {
   final HuaycoEvent event;
+  // Callback para avisar al padre
+  final Function(LatLng)? onMap;
 
-  const _EventCard({required this.event});
+  const _EventCard({required this.event, this.onMap});
 
   Color _getSeverityColor(String severity) {
     switch (severity) {
@@ -333,15 +342,13 @@ class _EventCard extends StatelessWidget {
 
               ElevatedButton.icon(
                 onPressed: () {
-                  // AQUÍ CONECTAMOS CON TU MAPA
-                  // Nota: Para que esto funcione perfecto, tu MapScreen debería aceptar argumentos
-                  // Por ahora, simplemente abrimos el mapa genérico
-                  Navigator.pushNamed(context, AppRoutes.map);
-
-                  // *IDEA:* Podrías mostrar un SnackBar diciendo:
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("Mostrando zona: ${event.location}"))
-                  );
+                  // LÓGICA CORREGIDA:
+                  if (onMap != null) {
+                    onMap!(event.coords); // Ejecuta la función del padre (HomeLayout)
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Navegación no disponible")));
+                  }
                 },
                 icon: const Icon(Icons.map, size: 16),
                 label: const Text("Ver en Mapa"),
