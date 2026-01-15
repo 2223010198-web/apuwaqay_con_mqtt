@@ -1,30 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:latlong2/latlong.dart';
-import '../../widgets/side_menu.dart';
 
-// --- MODELO DE DATOS ACTUALIZADO ---
-class HuaycoEvent {
-  final String title;
-  final String date;
-  final String location;
-  final String severity;
-  final String description;
-  final String source;
-  final LatLng coords;
-  final List<String> images;
-
-  HuaycoEvent({
-    required this.title,
-    required this.date,
-    required this.location,
-    required this.severity,
-    required this.description,
-    required this.source,
-    required this.coords,
-    required this.images,
-  });
-}
+// --- IMPORTS DE MODELOS Y COMPONENTES ---
+import '../../../domain/models/huayco_event.dart';      // Modelo de datos
+import '../../widgets/side_menu.dart';               // Menú lateral reutilizable
+import '../../widgets/emergency_button.dart';        // Botones de emergencia
+import '../../widgets/event_card.dart';              // Tarjeta de evento
 
 class HistoryScreen extends StatefulWidget {
   final Function(LatLng)? onMapRequest;
@@ -36,13 +18,15 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
+  // Clave para controlar el Scaffold y abrir el Drawer manualmente
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   final TextEditingController _searchController = TextEditingController();
 
-  // VARIABLE DE ESTADO PARA CONTROLAR LA VISTA (Lista o Detalle)
+  // Variable para controlar si mostramos la lista o el detalle
   HuaycoEvent? _selectedEvent;
 
-  // --- DATOS SIMULADOS ---
+  // --- DATOS SIMULADOS (Usando el modelo importado) ---
   final List<HuaycoEvent> _allEvents = [
     HuaycoEvent(
       title: "Desborde Quebrada del Toro",
@@ -53,8 +37,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       source: "INDECI",
       coords: const LatLng(-16.625, -72.711),
       images: [
-        "https://images-tools.cadena3.com/tools/r/5bb022ea-59cd-464b-9809-5545fa169074.jpg?width=1200&height=798",
-        "https://eltinterodesalta.com/download/multimedia.normal.a728efb060e47fa5.bm9ybWFsLndlYnA%3D.webp",
+        "https://portal.indeci.gob.pe/wp-content/uploads/2023/03/WhatsApp-Image-2023-03-12-at-10.35.15-AM.jpeg",
+        "https://peru21.pe/resizer/v2/LQP5J5ZTZNHYRN6F6F6F6F6F6F.jpg?auth=6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f&width=980&height=528&quality=75&smart=true",
       ],
     ),
     HuaycoEvent(
@@ -66,8 +50,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       source: "IGP",
       coords: const LatLng(-11.936, -76.692),
       images: [
-        "https://portal.andina.pe/EDPfotografia/Thumbnail/2015/02/09/000280980W.jpg",
-        "https://peru21.pe/sites/default/efsfiles/2023-09/V23ST5V72FBXNLMW25ELKLIIVY.jpg"
+        "https://elperuano.pe/fotografia/thumbnail/2023/02/05/000213697M.jpg",
       ],
     ),
     HuaycoEvent(
@@ -78,7 +61,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       description: "El fenómeno 'El Niño Costero' provocó uno de los desastres más grandes en la zona de Cajamarquilla.",
       source: "Noticias",
       coords: const LatLng(-11.950, -76.980),
-      images: ["https://cloudfront-us-east-1.images.arcpublishing.com/infobae/BPHD2NN67BAZNNL6EGIPVEM47A.png"],
+      images: [], // Sin imágenes
     ),
     HuaycoEvent(
       title: "Alerta Río Rímac",
@@ -88,7 +71,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       description: "Aumento de caudal preventivo por lluvias en la sierra central. No hubo desbordes mayores.",
       source: "SENAMHI",
       coords: const LatLng(-11.975, -76.765),
-      images: ["https://www.infobae.com/new-resizer/CIFjV4xHQNmXjHPpWxk-HzHN3Gg=/arc-anglerfish-arc2-prod-infobae/public/XT2DJVR5HFHGZM7SYKIQQHEXUQ.jpg"],
+      images: [],
     ),
   ];
 
@@ -121,6 +104,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // PopScope maneja el botón "Atrás" físico de Android
     return PopScope(
       canPop: _selectedEvent == null,
       onPopInvoked: (didPop) {
@@ -129,17 +113,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
         }
       },
       child: Scaffold(
-        key: _scaffoldKey, // NECESARIO PARA ABRIR EL DRAWER
+        key: _scaffoldKey, // Asignamos la llave para controlar el Drawer
         backgroundColor: Colors.grey[50],
 
+        // MENÚ LATERAL IMPORTADO
         drawer: const SideMenu(),
-        // LÓGICA PRINCIPAL: Si hay un evento seleccionado, mostramos detalle, sino lista
+
+        // RENDERIZADO CONDICIONAL: Lista o Detalle
         body: _selectedEvent != null ? _buildDetailView() : _buildListView(),
       ),
     );
   }
 
-  // --- VISTA 1: LISTA DE EVENTOS (Dashboard normal) ---
+  // --- VISTA 1: LISTA DE EVENTOS ---
   Widget _buildListView() {
     return SingleChildScrollView(
       child: Column(
@@ -147,9 +133,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         children: [
           // Header personalizado
           Container(
-            padding: const EdgeInsets.only(top: 40, left: 20, right: 20, bottom: 20),
+            padding: const EdgeInsets.only(top: 40, left: 10, right: 20, bottom: 20),
             color: Colors.white,
-            // AQUÍ ESTABA EL ERROR: Se quitó 'const' antes de Row
             child: Row(
               children: [
                 IconButton(
@@ -157,7 +142,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   onPressed: () => _scaffoldKey.currentState?.openDrawer(),
                 ),
                 const SizedBox(width: 5),
-                const Text("Historial y Recursos", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                const Text("Historial y Recursos", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 const Spacer(),
                 const Icon(Icons.history_edu, color: Colors.blueGrey),
               ],
@@ -168,6 +153,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
           const SizedBox(height: 20),
 
+          // Buscador
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Container(
@@ -189,12 +175,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
           const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Text("Registro de Eventos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
           const SizedBox(height: 10),
 
+          // Lista usando el componente reutilizable EventCard
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: _filteredEvents.length,
             itemBuilder: (context, index) {
-              return _EventCard(
+              return EventCard(
                 event: _filteredEvents[index],
                 onTap: () {
                   setState(() {
@@ -217,7 +204,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Cabecera con Botón Atrás
+          // Header detalle con botón volver
           Container(
             padding: const EdgeInsets.only(top: 40, left: 10, right: 20, bottom: 10),
             color: Colors.white,
@@ -225,22 +212,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.black),
-                  onPressed: () {
-                    setState(() => _selectedEvent = null);
-                  },
+                  onPressed: () => setState(() => _selectedEvent = null),
                 ),
-                Expanded(
-                  child: Text(
-                    event.title,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+                Expanded(child: Text(event.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
               ],
             ),
           ),
 
-          // 2. Carrusel de Imágenes
+          // Carrusel de Imágenes
           SizedBox(
             height: 250,
             child: event.images.isNotEmpty
@@ -250,56 +229,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 return Image.network(
                   event.images[index],
                   fit: BoxFit.cover,
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Center(child: CircularProgressIndicator(value: loadingProgress.expectedTotalBytes != null ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes! : null));
-                  },
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    color: Colors.grey[300],
-                    child: const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                        Text("Error al cargar imagen", style: TextStyle(color: Colors.grey))
-                      ],
-                    ),
-                  ),
+                  errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300], child: const Icon(Icons.broken_image, size: 50, color: Colors.grey)),
                 );
               },
             )
                 : Container(
               color: Colors.grey[200],
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Image.asset('assets/images/logo.png', width: 60),
-                    const SizedBox(height: 10),
-                    const Text("Sin imágenes disponibles", style: TextStyle(color: Colors.grey))
-                  ],
-                ),
-              ),
+              child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Image.asset('assets/images/logo.png', width: 60), const SizedBox(height: 10), const Text("Sin imágenes disponibles", style: TextStyle(color: Colors.grey))])),
             ),
           ),
 
-          // 3. Indicador de Severidad
+          // Banner de Severidad
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 10),
             color: _getSeverityColor(event.severity).withOpacity(0.2),
-            child: Center(
-              child: Text(
-                "NIVEL DE SEVERIDAD: ${event.severity.toUpperCase()}",
-                style: TextStyle(
-                  color: _getSeverityColor(event.severity),
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ),
+            child: Center(child: Text("NIVEL DE SEVERIDAD: ${event.severity.toUpperCase()}", style: TextStyle(color: _getSeverityColor(event.severity), fontWeight: FontWeight.bold, letterSpacing: 1.5))),
           ),
 
-          // 4. Información Detallada
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -312,14 +259,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 const SizedBox(height: 20),
                 const Text("Descripción del Evento", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
-                Text(
-                  event.description,
-                  style: const TextStyle(fontSize: 14, height: 1.5, color: Colors.black87),
-                  textAlign: TextAlign.justify,
-                ),
+                Text(event.description, style: const TextStyle(fontSize: 14, height: 1.5, color: Colors.black87), textAlign: TextAlign.justify),
 
                 const SizedBox(height: 30),
 
+                // Botón Ver en Mapa
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -348,193 +292,37 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  // --- WIDGETS AUXILIARES ---
-
+  // --- SECCIÓN DE EMERGENCIA (Usa widgets importados) ---
   Widget _buildEmergencySection() {
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFCF0A2C),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(30),
-          bottomRight: Radius.circular(30),
-        ),
-        boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("Canales Oficiales", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 15),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _EmergencyButton(
-                icon: Icons.local_police,
-                label: "Policía",
-                number: "105",
-                onTap: () => _launchURL("tel:105"),
-              ),
-              _EmergencyButton(
-                icon: Icons.fire_truck,
-                label: "Bomberos",
-                number: "116",
-                onTap: () => _launchURL("tel:116"),
-              ),
-              _EmergencyButton(
-                icon: Icons.support_agent,
-                label: "INDECI",
-                number: "115",
-                onTap: () => _launchURL("tel:115"),
-              ),
-              _EmergencyButton(
-                icon: Icons.language,
-                label: "Web",
-                number: "Info",
-                onTap: () => _launchURL("https://www.gob.pe/indeci"),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _getSeverityColor(String severity) {
-    switch (severity) {
-      case 'Alta': return Colors.red;
-      case 'Media': return Colors.orange;
-      default: return Colors.green;
-    }
-  }
-}
-
-class _EmergencyButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String number;
-  final VoidCallback onTap;
-
-  const _EmergencyButton({required this.icon, required this.label, required this.number, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
-            child: Icon(icon, color: Colors.white, size: 28),
-          ),
-          const SizedBox(height: 5),
-          Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
-          Text(number, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-}
-
-class _EventCard extends StatelessWidget {
-  final HuaycoEvent event;
-  final Function(LatLng)? onMap;
-  final VoidCallback? onTap;
-
-  const _EventCard({required this.event, this.onMap, this.onTap});
-
-  Color _getSeverityColor(String severity) {
-    switch (severity) {
-      case 'Alta': return Colors.red;
-      case 'Media': return Colors.orange;
-      default: return Colors.green;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 5, offset: const Offset(0, 3))],
-        ),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(color: const Color(0xFFCF0A2C), borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(30), bottomRight: Radius.circular(30)), boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))]),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: _getSeverityColor(event.severity).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    "Severidad: ${event.severity}",
-                    style: TextStyle(color: _getSeverityColor(event.severity), fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                ),
-                Text(event.date, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(event.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            Row(
-              children: [
-                const Icon(Icons.location_on, size: 14, color: Colors.grey),
-                const SizedBox(width: 4),
-                Text(event.location, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              event.description,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, color: Colors.black87),
-            ),
-            const SizedBox(height: 10),
-            const Align(
-              alignment: Alignment.centerRight,
-              child: Text("Ver detalles >", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 12)),
-            ),
-          ],
-        ),
-      ),
-    );
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("Canales Oficiales", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 15),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+                EmergencyButton(icon: Icons.local_police, label: "Policía", number: "105", onTap: () => _launchURL("tel:105")),
+                EmergencyButton(icon: Icons.fire_truck, label: "Bomberos", number: "116", onTap: () => _launchURL("tel:116")),
+                EmergencyButton(icon: Icons.support_agent, label: "INDECI", number: "115", onTap: () => _launchURL("tel:115")),
+                EmergencyButton(icon: Icons.language, label: "Web", number: "Info", onTap: () => _launchURL("https://www.gob.pe/indeci")),
+              ]),
+            ]));
+  }
+
+  Color _getSeverityColor(String severity) {
+    switch (severity) { case 'Alta': return Colors.red; case 'Media': return Colors.orange; default: return Colors.green; }
   }
 }
 
+// --- WIDGET LOCAL ---
+// Mantenemos este pequeño widget aquí porque es muy específico de la vista de detalle
 class _DetailRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
+  final IconData icon; final String label; final String value;
   const _DetailRow({required this.icon, required this.label, required this.value});
-
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: Colors.grey),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 80,
-            child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
-          ),
-          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500))),
-        ],
-      ),
-    );
+    return Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, size: 20, color: Colors.grey), const SizedBox(width: 10), SizedBox(width: 80, child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54))), Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)))]));
   }
 }
