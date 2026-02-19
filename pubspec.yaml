@@ -29,12 +29,15 @@ dependencies:
   geolocator: ^10.1.0       # GPS
   camera: ^0.10.5           # Fotos reporte
   audioplayers: ^5.2.1      # Sonido Alarma
+
   flutter_vibrate: ^1.3.0   # Vibración
 
   # --- Conectividad & Datos ---
   provider: ^6.1.1          # Gestión de Estado
   mqtt_client: ^10.0.1      # Conexión IoT
   shared_preferences: ^2.2.2 # Base de datos local simple
+  flutter_dotenv: ^5.1.0
+
 
 dev_dependencies:
   flutter_test:
@@ -51,6 +54,7 @@ flutter:
 
   # ⚠️ CORRECCIÓN: 'assets' debe estar identado DENTRO de 'flutter' (2 espacios)
   assets:
+    - .env
     - assets/images/logo.png
     - assets/images/icono_app.png   # Agregado por si lo usas en la UI
     - assets/images/logo_splash.png # Agregado por si lo usas en la UI

@@ -3,12 +3,15 @@ import 'dart:io'; // Para manejar el archivo de la foto
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_vibrate/flutter_vibrate.dart';
+
 import 'package:geolocator/geolocator.dart'; // Tecnología base compatible con Huawei/Android
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:image_picker/image_picker.dart'; // Para la cámara
 import '../../../app_routes.dart';
+import '../../../data/services/mqtt_service.dart';
+
 
 // --- IMPORTS DE COMPONENTES REUTILIZABLES ---
 import '../../widgets/side_menu.dart';
@@ -23,11 +26,14 @@ class DashboardScreen extends StatefulWidget {
   // --- ACTUALIZAMOS EL CONSTRUCTOR ---
   const DashboardScreen({super.key, this.onMapTap});
 
+
+
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
+  final MqttService _mqttService = MqttService();
   // --- VARIABLES DE ESTADO ---
   int alertLevel = 0;
   String userName = "Usuario";
@@ -61,6 +67,30 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
     Future.delayed(const Duration(seconds: 1), () {
       _requestAllPermissions();
+    });
+    _initMqtt();
+  }
+
+  void _initMqtt() async {
+    await _mqttService.connect();
+
+    // Escuchar el stream de datos
+    _mqttService.dataStream.listen((data) {
+      if (!mounted) return;
+
+      setState(() {
+        // Actualizar variables con datos reales de la Raspberry
+        alertLevel = data['nivel_alerta']; // 0 o 2
+        vibrationIntensity = (data['vibracion'] as num).toDouble();
+
+        // Actualizar UI según nivel
+        if (alertLevel == 2) {
+          etaHuayco = "INMINENTE";
+          // Opcional: disparar vibración del celular aquí también
+        } else {
+          etaHuayco = "";
+        }
+      });
     });
   }
 
@@ -372,6 +402,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       _vibrationTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
         counter++;
         if (counter >= (maxDuration * 2)) _stopVibration(); else Vibrate.feedback(FeedbackType.warning);
+
       });
     }
   }
@@ -379,6 +410,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void _triggerVibrate() async {
     if (await Vibrate.canVibrate) Vibrate.vibrateWithPauses([const Duration(milliseconds: 100), const Duration(milliseconds: 1000)]);
   }
+
+
+
 
   void _stopVibration() {
     _vibrationTimer?.cancel();
