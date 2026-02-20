@@ -12,17 +12,20 @@ class SosService {
     required bool isAuto,
     required bool isTracking,
   }) async {
-    if (position == null) return 0; // Sin GPS no se puede enviar
+    if (position == null) {
+      debugPrint("❌ No hay coordenadas, no se puede enviar SOS exacto.");
+      return 0;
+    }
 
     final prefs = await SharedPreferences.getInstance();
     String c1 = prefs.getString('sos_contact_1') ?? "";
     String c2 = prefs.getString('sos_contact_2') ?? "";
 
-    List<String> recipients = ["968892408"]; // INDECI o Central
+    // Lista de destinatarios (Incluir INDECI o tu número de prueba)
+    List<String> recipients = ["115"]; // Central de INDECI
     if (c1.isNotEmpty) recipients.add(c1);
     if (c2.isNotEmpty) recipients.add(c2);
 
-    // CORRECCIÓN: Link de maps válido
     String mapsLink = "https://maps.google.com/?q=${position.latitude},${position.longitude}";
     String typeMsg = isAuto ? "[ALERTA AUTOMÁTICA]" : (isTracking ? "[RASTREO ACTIVO]" : "[UBICACIÓN FIJA]");
     String msg = "¡SOS HUAYCO! Soy $userName. $typeMsg: $mapsLink";
@@ -32,8 +35,9 @@ class SosService {
       try {
         await platform.invokeMethod('sendDirectSMS', {"phone": number, "msg": msg});
         successCount++;
+        debugPrint("✅ SMS enviado a $number");
       } catch (e) {
-        debugPrint("❌ Error SMS a $number: $e");
+        debugPrint("❌ Error enviando SMS a $number: $e");
       }
     }
     return successCount;

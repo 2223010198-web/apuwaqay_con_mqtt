@@ -1,18 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_vibrate/flutter_vibrate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:image_picker/image_picker.dart';
-
+import 'package:permission_handler/permission_handler.dart';
 import '../../../app_routes.dart';
-// --- SERVICIOS EXTRAÍDOS ---
+
+// --- SERVICIOS ---
 import '../../../data/services/mqtt_service.dart';
-import '../../../data/services/notification_service.dart';
 import '../../../data/services/location_service.dart';
+import '../../../data/services/vibration_service.dart';
+import '../../../data/services/notification_service.dart';
 import '../../../data/services/sos_service.dart';
-import '../../../data/services/mqtt_service.dart';
+import '../../../data/services/simulation_service.dart';
+import '../../../data/services/permission_service.dart'; // <--- NUEVO SERVICIO
 
 // --- COMPONENTES ---
 import '../../widgets/side_menu.dart';
@@ -28,145 +29,79 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
-  // 1. INYECCIÓN DE SERVICIOS
+  // 1. Instancias de Servicios
   final MqttService _mqttService = MqttService();
-  final NotificationService _notificationService = NotificationService();
   final LocationService _locationService = LocationService();
+  final VibrationService _vibrationService = VibrationService();
+  final NotificationService _notificationService = NotificationService();
   final SosService _sosService = SosService();
-  StreamSubscription? _mqttSubscription;
+  final SimulationService _simulationService = SimulationService();
+  final PermissionService _permissionService = PermissionService(); // <--- INSTANCIA PERMISOS
 
-  // 2. VARIABLES DE ESTADO UI
+  // 2. Variables de Estado UI
   int alertLevel = 0;
   String userName = "Usuario";
   bool sosEnabled = true;
   bool autoSend = false;
   bool realTime = false;
-  bool _missingPermissions = true;
+  bool _missingPermissions = true; // <--- VARIABLE RECUPERADA PARA EL BOTÓN AMARILLO
 
   double vibrationIntensity = 0.0;
   double rainLevel = 0.0;
   double riverLevel = 1.2;
+  double iaConfidence = 0.0;
   String etaHuayco = "";
 
-  Timer? _vibrationTimer;
   final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _initApp();
+  }
 
-    // Inicialización de servicios
-    _notificationService.init();
-    _loadUserData();
+  Future<void> _initApp() async {
+    await _notificationService.init();
+
+    // RECUPERADO: Petición global de permisos al iniciar
+    await _permissionService.requestAllPermissions();
     _checkPermissionsStatus();
 
-    Future.delayed(const Duration(seconds: 1), () {
-      _requestAllPermissions();
-    });
-
+    _loadUserData();
     _initMqtt();
+  }
+
+  // RECUPERADO: Verifica si falta algún permiso para mostrar/ocultar el botón amarillo
+  Future<void> _checkPermissionsStatus() async {
+    bool hasAll = await _permissionService.hasAllPermissions();
+    if (mounted) {
+      setState(() {
+        _missingPermissions = !hasAll;
+      });
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _stopVibration();
+    _vibrationService.stopVibration();
     _locationService.stopTracking();
-    _mqttService.client.disconnect();
+    _mqttService.disconnect();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _checkPermissionsStatus();
-      if (alertLevel == 1) _checkPermissionsForWarning();
+      _checkPermissionsStatus(); // Vuelve a chequear permisos al volver a la app
       if (realTime) _startRastreo();
     }
   }
 
-  // --- LÓGICA DE SERVICIOS ---
-
-  void _initMqtt() async {
-    // Conectar al broker
-    await _mqttService.connect();
-
-    // Empezar a escuchar los datos
-    _mqttSubscription = _mqttService.dataStream.listen((data) {
-      if (!mounted) return;
-
-      setState(() {
-        // 1. Extraer los datos del JSON que envía tu Raspberry
-        riverLevel = (data['rio'] ?? 1.2 as num).toDouble();
-        rainLevel = (data['lluvia'] ?? 0.0 as num).toDouble();
-        vibrationIntensity = (data['vibracion'] ?? 0.0 as num).toDouble();
-
-        // La probabilidad de la IA
-        double iaConf = (data['probabilidad'] ?? 0.0 as num).toDouble();
-
-        // 2. Revisar si hay un cambio en el nivel de alerta
-        int newAlertLevel = (data['nivel_alerta'] ?? 0 as num).toInt();
-
-        if (newAlertLevel != alertLevel) {
-          alertLevel = newAlertLevel;
-          _handleAlertStateChange(alertLevel); // Activa sirenas, vibración, etc.
-        }
-      });
-    });
-  }
-
-  void _startRastreo() {
-    _locationService.startTracking(onPositionUpdate: (pos) {
-      if (mounted) setState(() {}); // Solo refresca la UI si es necesario
-    });
-  }
-
-  void _handleAlertStateChange(int level) {
-    _stopVibration(); // Detener vibraciones anteriores
-    etaHuayco = "";
-
-    if (level == 1) {
-      etaHuayco = "Posible en 45 min";
-      _notificationService.showWarningNotification("⚠️ PRECAUCIÓN", "Nivel del río subiendo.");
-      _startVibrationPattern(isRedAlert: false);
-      if(mounted) _showCautionDialog();
-    } else if (level == 2) {
-      etaHuayco = "IMPACTO INMINENTE";
-      _notificationService.showWarningNotification("🚨 PELIGRO: HUAYCO", "¡Evacúa inmediatamente!");
-      _startVibrationPattern(isRedAlert: true);
-      if (autoSend) _sendSOS(isAuto: true);
-      if(mounted) _showEmergencyDialog();
-    }
-  }
-
-  Future<void> _sendSOS({bool isAuto = false}) async {
-    if (mounted && !isAuto) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enviando alerta prioritaria...")));
-    }
-
-    // Usamos el servicio GPS para obtener coordenada
-    final position = await _locationService.getCurrentOrLastPosition();
-
-    // Usamos el servicio SOS para enviar SMS
-    int successCount = await _sosService.sendSOSAlert(
-      position: position,
-      userName: userName,
-      isAuto: isAuto,
-      isTracking: _locationService.isTracking,
-    );
-
-    if (mounted && successCount > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("✅ Alerta enviada a $successCount contactos."), backgroundColor: Colors.green));
-    } else if (mounted && successCount == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("❌ Falla enviando SMS o sin GPS."), backgroundColor: Colors.red));
-    }
-  }
-
-  // --- LÓGICA DE UI Y CONFIGURACIONES ---
-
   void _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       userName = prefs.getString('userName') ?? "Usuario";
       sosEnabled = prefs.getBool('sos_enabled') ?? true;
@@ -176,69 +111,191 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     if (realTime) _startRastreo();
   }
 
-  Future<void> _checkPermissionsStatus() async {
-    bool loc = await Permission.location.isGranted;
-    bool sms = await Permission.sms.isGranted;
-    bool cam = await Permission.camera.isGranted;
-    if (mounted) setState(() => _missingPermissions = !(loc && sms && cam));
+  void _startRastreo() {
+    _locationService.startTracking(onPositionUpdate: (pos) {
+      if (mounted) setState(() {});
+    });
   }
 
-  Future<void> _requestAllPermissions() async {
-    await [Permission.location, Permission.sms, Permission.phone, Permission.notification, Permission.camera].request();
-    _checkPermissionsStatus();
+  void _initMqtt() async {
+    await _mqttService.connect();
+    _mqttService.dataStream.listen((data) {
+      _updateDashboardFromData(data);
+    });
   }
 
-  // ... (MANTENEMOS TUS FUNCIONES DE CÁMARA Y DIÁLOGOS INTACTAS)
+  void _runSimulation() {
+    final simulatedData = _simulationService.getNextSimulationState(alertLevel);
+    _updateDashboardFromData(simulatedData);
+  }
+
+  void _updateDashboardFromData(Map<String, dynamic> data) {
+    if (!mounted) return;
+    setState(() {
+      riverLevel = (data['rio'] ?? 1.2 as num).toDouble();
+      rainLevel = (data['lluvia'] ?? 0.0 as num).toDouble();
+      vibrationIntensity = (data['vibracion'] ?? 0.0 as num).toDouble();
+      iaConfidence = (data['probabilidad'] ?? 0.0 as num).toDouble();
+
+      int newAlertLevel = (data['nivel_alerta'] ?? 0 as num).toInt();
+
+      if (newAlertLevel != alertLevel) {
+        alertLevel = newAlertLevel;
+        _handleAlertStateChange(alertLevel);
+      }
+    });
+  }
+
+  void _handleAlertStateChange(int level) {
+    _vibrationService.stopVibration();
+    etaHuayco = "";
+
+    if (level == 1) {
+      etaHuayco = "Posible en 45 min";
+      _notificationService.showPrecautionNotification();
+      _vibrationService.startPrecautionVibration();
+
+    } else if (level == 2) {
+      etaHuayco = "IMPACTO INMINENTE";
+      _notificationService.showDangerNotification();
+      _vibrationService.startDangerVibration();
+
+      if (autoSend) {
+        debugPrint("⚡ ALERTA ROJA: Enviando SOS Automático...");
+        _sendSOS(isAuto: true);
+      }
+    }
+  }
+
+  // --- RECUPERADO: DIÁLOGO DE ADVERTENCIA DE PERMISOS ---
+  void _showPermissionWarningDialog() {
+    showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber, color: Colors.orange),
+              SizedBox(width: 8),
+              Text("Permisos Faltantes"),
+            ],
+          ),
+          content: const Text("La app necesita permisos (Ubicación, SMS, Cámara) para protegerte correctamente y enviar tu ubicación en una emergencia."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                onPressed: () {
+                  Navigator.pop(context);
+                  _permissionService.requestAllPermissions().then((_) => _checkPermissionsStatus());
+                  // Opcionalmente: _permissionService.openSettings();
+                },
+                child: const Text("SOLUCIONAR")
+            ),
+          ],
+        )
+    );
+  }
+
+  void _handleSosPress() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [Icon(Icons.sos, color: Colors.red, size: 32), SizedBox(width: 10), Text("Botón de Emergencia")],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Al presionar ENVIAR, mandaremos tu ubicación GPS por SMS a las autoridades e INDECI, incluso sin internet.", textAlign: TextAlign.justify),
+            const SizedBox(height: 15),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.orange.shade200)),
+              child: const Text("💡 Recomendación vital:\nActiva el 'Envío Automático' en la configuración. Si el sensor de la IA detecta el huayco, pediremos ayuda por ti aunque no puedas tocar tu celular.", style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600, fontSize: 13), textAlign: TextAlign.justify),
+            ),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
+        actions: [
+          TextButton.icon(onPressed: () {Navigator.pop(context); Navigator.pushNamed(context, AppRoutes.editSos).then((_) => _loadUserData());}, icon: const Icon(Icons.settings), label: const Text("Configurar")),
+          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), onPressed: () {Navigator.pop(context); _sendSOS(isAuto: false);}, child: const Text("ENVIAR SOS AHORA", style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendSOS({bool isAuto = false}) async {
+    if (mounted && !isAuto) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Obteniendo GPS preciso y enviando alerta...")));
+    final position = await _locationService.getCurrentOrLastPosition();
+    int successCount = await _sosService.sendSOSAlert(position: position, userName: userName, isAuto: isAuto, isTracking: _locationService.isTracking);
+    if (mounted && successCount > 0 && !isAuto) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("✅ Alerta SOS enviada a $successCount contactos."), backgroundColor: Colors.green));
+  }
+
+  // --- RECUPERADO: FLUJO DE LA CÁMARA CORREGIDO ---
   Future<void> _takePhoto() async {
+    // 1. Verificamos que tenga permiso de cámara
+    bool hasCam = await Permission.camera.isGranted;
+    if (!hasCam) {
+      await Permission.camera.request();
+      if (!await Permission.camera.isGranted) {
+        if(!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Permiso de cámara denegado.")));
+        return;
+      }
+    }
+
     try {
-      final XFile? photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 50);
-      if (photo != null && mounted) _showPhotoConfirmationDialog(File(photo.path));
+      // 2. Abrimos la cámara y ESPERAMOS a que tome la foto
+      final XFile? photo = await _picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 50 // Comprimimos la imagen para que sea ligera
+      );
+
+      // 3. Si tomó la foto y no canceló, mostramos el diálogo
+      if (photo != null && mounted) {
+        _showPhotoConfirmationDialog(File(photo.path));
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No se pudo acceder a la cámara")));
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No se pudo acceder a la cámara")));
+      debugPrint("Error cámara: $e");
     }
   }
 
   void _showPhotoConfirmationDialog(File imageFile) {
-    // ... Tu código original del diálogo de foto (omitido por brevedad, pégalo aquí)
-  }
-
-  void _startVibrationPattern({required bool isRedAlert}) {
-    _stopVibration();
-    int counter = 0;
-    int maxDuration = isRedAlert ? 15 : 5;
-    if (isRedAlert) {
-      _triggerVibrate();
-      _vibrationTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-        counter += 3;
-        if (counter >= maxDuration) _stopVibration(); else _triggerVibrate();
-      });
-    } else {
-      _vibrationTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
-        counter++;
-        if (counter >= (maxDuration * 2)) _stopVibration(); else Vibrate.feedback(FeedbackType.warning);
-      });
-    }
-  }
-
-  void _triggerVibrate() async {
-    if (await Vibrate.canVibrate) Vibrate.vibrateWithPauses([const Duration(milliseconds: 100), const Duration(milliseconds: 1000)]);
-  }
-
-  void _stopVibration() => _vibrationTimer?.cancel();
-
-  // DIÁLOGOS DE ALERTA
-  void _showSafeModeDialog() { /* ... Tu código original ... */ }
-  Future<void> _showWarningConfirmationDialog() async { /* ... Tu código original ... */ }
-  void _showCautionDialog() { /* ... Tu código original ... */ }
-  void _showEmergencyDialog() { /* ... Tu código original ... */ }
-  void _checkPermissionsForWarning() { /* ... Tu código original ... */ }
-  void _showPermissionWarningDialog() { /* ... Tu código original ... */ }
-
-  void _simulateChange() {
-    setState(() {
-      alertLevel = (alertLevel + 1) % 3;
-      _handleAlertStateChange(alertLevel);
-    });
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Confirmar Reporte"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("¿Deseas enviar esta foto de evidencia al centro de monitoreo comunal?"),
+            const SizedBox(height: 15),
+            // VISTA PREVIA CORREGIDA
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              // Limitamos la altura para que no desborde la pantalla
+              child: Image.file(imageFile, height: 250, width: double.infinity, fit: BoxFit.cover),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+            icon: const Icon(Icons.send),
+            label: const Text("ENVIAR REPORTE"),
+            onPressed: () {
+              Navigator.pop(context); // Cierra el diálogo
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("✅ Reporte fotográfico enviado con éxito"), backgroundColor: Colors.green)
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   Color getStatusColor() {
@@ -263,23 +320,49 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         backgroundColor: getStatusColor(),
         foregroundColor: Colors.white,
         actions: [
-          IconButton(icon: const Icon(Icons.help_outline), onPressed: () => showDialog(context: context, builder: (_) => const SafetyGuideDialog())),
-          IconButton(icon: const Icon(Icons.bug_report), onPressed: _simulateChange),
+          IconButton(
+              icon: const Icon(Icons.help_outline),
+              tooltip: "Guía de Seguridad",
+              onPressed: () => showDialog(context: context, builder: (_) => const SafetyGuideDialog())
+          ),
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            tooltip: "Simular Evento",
+            onPressed: _runSimulation,
+          ),
         ],
       ),
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (_missingPermissions && sosEnabled) Padding(padding: const EdgeInsets.only(right: 10), child: FloatingActionButton.small(heroTag: "btn_warning", elevation: 0, backgroundColor: Colors.transparent, onPressed: _showPermissionWarningDialog, child: const Icon(Icons.warning_amber, color: Colors.amber, size: 40))),
-          FloatingActionButton(heroTag: "btn_camara", onPressed: _takePhoto, backgroundColor: Colors.white, child: const Icon(Icons.camera_alt, color: Colors.black87)),
+          // --- RECUPERADO: BOTÓN AMARILLO DE PERMISOS ---
+          if (_missingPermissions && sosEnabled) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: FloatingActionButton.small(
+                heroTag: "btn_warning",
+                elevation: 0,
+                backgroundColor: Colors.transparent,
+                onPressed: _showPermissionWarningDialog, // Llama al diálogo
+                child: const Icon(Icons.warning_amber, color: Colors.amber, size: 40),
+              ),
+            ),
+          ],
+          FloatingActionButton(
+            heroTag: "btn_camara",
+            onPressed: _takePhoto,
+            backgroundColor: Colors.white,
+            tooltip: "Reportar Huayco (Cámara)",
+            child: const Icon(Icons.camera_alt, color: Colors.black87),
+          ),
           const SizedBox(width: 15),
           if (sosEnabled) FloatingActionButton.extended(
             heroTag: "btn_sos",
-            onPressed: () => alertLevel == 0 ? _showSafeModeDialog() : (alertLevel == 1 ? _showWarningConfirmationDialog() : _sendSOS(isAuto: false)),
+            onPressed: _handleSosPress,
             backgroundColor: alertLevel == 0 ? Colors.grey : Colors.red[900],
             icon: const Icon(Icons.sos, color: Colors.white),
-            label: const Text("SOS", style: TextStyle(color: Colors.white)),
+            label: const Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -292,7 +375,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               Icon(alertLevel == 2 ? Icons.campaign : Icons.verified_user, size: 80, color: Colors.white),
               const SizedBox(height: 10),
               Text(getStatusText(), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
-              if (alertLevel == 2) Text("LLEGADA ESTIMADA: $etaHuayco", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              if (alertLevel == 2) Text(etaHuayco, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              if (alertLevel > 0 && iaConfidence > 0) Text("Detectado por IA (${(iaConfidence*100).toStringAsFixed(0)}%)", style: const TextStyle(color: Colors.white70, fontSize: 12)),
             ]),
           ),
           Padding(
