@@ -77,4 +77,21 @@ class NotificationService {
         const NotificationDetails(android: androidDetails)
     );
   }
+
+  Future<void> showAutoSosNotification(int count) async {
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'canal_info',
+      'Información del Sistema',
+      importance: Importance.high,
+      priority: Priority.high,
+      icon: '@mipmap/ic_launcher',
+    );
+
+    await _plugin.show(
+        3,
+        "✅ SOS Enviado con Éxito",
+        "Tu ubicación fue enviada automáticamente a $count contactos.",
+        const NotificationDetails(android: androidDetails)
+    );
+  }
 }

@@ -303,10 +303,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
               const Text("Canales Oficiales", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 15),
               Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                EmergencyButton(icon: Icons.local_police, label: "Policía", number: "105", onTap: () => _launchURL("tel:105")),
-                EmergencyButton(icon: Icons.fire_truck, label: "Bomberos", number: "116", onTap: () => _launchURL("tel:116")),
-                EmergencyButton(icon: Icons.support_agent, label: "INDECI", number: "115", onTap: () => _launchURL("tel:115")),
-                EmergencyButton(icon: Icons.language, label: "Web", number: "Info", onTap: () => _launchURL("https://www.gob.pe/indeci")),
+                HistoryContactButton(icon: Icons.local_police, label: "Policía", number: "105", onTap: () => _launchURL("tel:105")),
+                HistoryContactButton(icon: Icons.fire_truck, label: "Bomberos", number: "116", onTap: () => _launchURL("tel:116")),
+                HistoryContactButton(icon: Icons.support_agent, label: "INDECI", number: "115", onTap: () => _launchURL("tel:115")),
+                HistoryContactButton(icon: Icons.language, label: "Web", number: "Info", onTap: () => _launchURL("https://www.gob.pe/indeci")),
               ]),
             ]));
   }
@@ -324,5 +324,53 @@ class _DetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, size: 20, color: Colors.grey), const SizedBox(width: 10), SizedBox(width: 80, child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54))), Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)))]));
+  }
+}
+
+// --- WIDGET LOCAL PARA LOS BOTONES DE CONTACTO ---
+class HistoryContactButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String number;
+  final VoidCallback onTap;
+
+  const HistoryContactButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.number,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(15),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.red.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.red[900], size: 32),
+            const SizedBox(height: 8),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            Text(number, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+          ],
+        ),
+      ),
+    );
   }
 }

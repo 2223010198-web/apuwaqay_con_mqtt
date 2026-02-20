@@ -37,7 +37,8 @@ dependencies:
   mqtt_client: ^10.0.1      # Conexión IoT
   shared_preferences: ^2.2.2 # Base de datos local simple
   flutter_dotenv: ^5.1.0
-
+  firebase_core: ^2.24.2
+  cloud_firestore: ^4.14.0
 
 dev_dependencies:
   flutter_test:
