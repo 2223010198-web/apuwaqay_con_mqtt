@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:latlong2/latlong.dart';
 
-
+// --- SERVICIOS Y MODELOS ---
+import '../../../data/services/firebase_service.dart';
 import '../../../domain/models/huayco_event.dart';
+
+// --- COMPONENTES Y PANTALLAS ---
 import '../../widgets/side_menu.dart';
-import '../../widgets/emergency_button.dart';
 import '../../widgets/event_card.dart';
+import 'event_detail_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   final Function(LatLng)? onMapRequest;
@@ -18,316 +21,209 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-
+  // --- LÓGICA Y ESTADO INTACTOS ---
+  final FirebaseService _firebaseService = FirebaseService();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
   final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = "";
 
-
-  HuaycoEvent? _selectedEvent;
-
-
-  final List<HuaycoEvent> _allEvents = [
-    HuaycoEvent(
-      title: "Desborde Quebrada del Toro",
-      date: "12 Mar 2023",
-      location: "Camaná, Arequipa",
-      severity: "Alta",
-      description: "Activación de quebrada afectando 500 viviendas y la carretera principal. Se requiere maquinaria pesada para limpieza.",
-      source: "INDECI",
-      coords: const LatLng(-16.625, -72.711),
-      images: [
-        "https://portal.indeci.gob.pe/wp-content/uploads/2023/03/WhatsApp-Image-2023-03-12-at-10.35.15-AM.jpeg",
-        "https://peru21.pe/resizer/v2/LQP5J5ZTZNHYRN6F6F6F6F6F6F.jpg?auth=6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f&width=980&height=528&quality=75&smart=true",
-      ],
-    ),
-    HuaycoEvent(
-      title: "Huayco en Chosica",
-      date: "05 Feb 2023",
-      location: "Chosica, Lima",
-      severity: "Media",
-      description: "Bloqueo de la carretera central por deslizamiento de lodo y piedras en el km 40.",
-      source: "IGP",
-      coords: const LatLng(-11.936, -76.692),
-      images: [
-        "https://elperuano.pe/fotografia/thumbnail/2023/02/05/000213697M.jpg",
-      ],
-    ),
-    HuaycoEvent(
-      title: "Deslizamiento en Jicamarca",
-      date: "15 Mar 2017",
-      location: "San Juan de Lurigancho",
-      severity: "Alta",
-      description: "El fenómeno 'El Niño Costero' provocó uno de los desastres más grandes en la zona de Cajamarquilla.",
-      source: "Noticias",
-      coords: const LatLng(-11.950, -76.980),
-      images: [],
-    ),
-    HuaycoEvent(
-      title: "Alerta Río Rímac",
-      date: "10 Ene 2024",
-      location: "Chaclacayo",
-      severity: "Baja",
-      description: "Aumento de caudal preventivo por lluvias en la sierra central. No hubo desbordes mayores.",
-      source: "SENAMHI",
-      coords: const LatLng(-11.975, -76.765),
-      images: [],
-    ),
-  ];
-
-  List<HuaycoEvent> _filteredEvents = [];
+  Future<void> _launchURL(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url);
+    } else {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir $urlString')));
+    }
+  }
 
   @override
-  void initState() {
-    super.initState();
-    _filteredEvents = _allEvents;
-  }
-
-  void _filterEvents(String query) {
-    setState(() {
-      if (query.isEmpty) {
-        _filteredEvents = _allEvents;
-      } else {
-        _filteredEvents = _allEvents
-            .where((event) =>
-        event.location.toLowerCase().contains(query.toLowerCase()) ||
-            event.title.toLowerCase().contains(query.toLowerCase()))
-            .toList();
-      }
-    });
-  }
-
-  Future<void> _launchURL(String url) async {
-    final Uri uri = Uri.parse(url);
-    if (!await launchUrl(uri)) debugPrint("No se pudo abrir $url");
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-
-    return PopScope(
-      canPop: _selectedEvent == null,
-      onPopInvoked: (didPop) {
-        if (_selectedEvent != null) {
-          setState(() => _selectedEvent = null);
-        }
-      },
-      child: Scaffold(
-        key: _scaffoldKey,
-        backgroundColor: Colors.grey[50],
-
-
-        drawer: const SideMenu(),
-
-
-        body: _selectedEvent != null ? _buildDetailView() : _buildListView(),
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: Colors.grey[50], // Fondo claro Material Design
+      drawer: const SideMenu(),
+      // Reemplazamos el AppBar por un Header personalizado en el body
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildCustomHeader(),
+            _buildEmergencySection(),
+            const SizedBox(height: 20),
+            _buildSearchBar(),
+            const SizedBox(height: 20),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Text("Registro de Eventos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 10),
+            _buildFirebaseList(), // Aquí se inyecta Firebase
+          ],
+        ),
       ),
     );
   }
 
+  // --- WIDGETS DE DISEÑO (UI/UX) ---
 
-  Widget _buildListView() {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildCustomHeader() {
+    return Container(
+      padding: EdgeInsets.only(
+          top: MediaQuery.of(context).padding.top + 10, // Respeta el notch del celular
+          left: 10, right: 20, bottom: 20
+      ),
+      color: Colors.white,
+      child: Row(
         children: [
-
-          Container(
-            padding: const EdgeInsets.only(top: 40, left: 10, right: 20, bottom: 20),
-            color: Colors.white,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.menu, color: Colors.black87),
-                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                ),
-                const SizedBox(width: 5),
-                const Text("Historial y Recursos", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const Spacer(),
-                const Icon(Icons.history_edu, color: Colors.blueGrey),
-              ],
-            ),
+          IconButton(
+            icon: const Icon(Icons.menu, color: Colors.black87),
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
           ),
-
-          _buildEmergencySection(),
-
-          const SizedBox(height: 20),
-
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
-              child: TextField(
-                controller: _searchController,
-                onChanged: _filterEvents,
-                decoration: const InputDecoration(
-                  hintText: "Buscar por lugar...",
-                  prefixIcon: Icon(Icons.search, color: Colors.grey),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 15),
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 20),
-          const Padding(padding: EdgeInsets.symmetric(horizontal: 20), child: Text("Registro de Eventos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-          const SizedBox(height: 10),
-
-
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _filteredEvents.length,
-            itemBuilder: (context, index) {
-              return EventCard(
-                event: _filteredEvents[index],
-                onTap: () {
-                  setState(() {
-                    _selectedEvent = _filteredEvents[index];
-                  });
-                },
-              );
-            },
-          ),
-          const SizedBox(height: 30),
+          const SizedBox(width: 5),
+          const Text("Historial y Recursos", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const Spacer(),
+          const Icon(Icons.history_edu, color: Colors.blueGrey),
         ],
       ),
     );
   }
-
-
-  Widget _buildDetailView() {
-    final event = _selectedEvent!;
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-
-          Container(
-            padding: const EdgeInsets.only(top: 40, left: 10, right: 20, bottom: 10),
-            color: Colors.white,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.black),
-                  onPressed: () => setState(() => _selectedEvent = null),
-                ),
-                Expanded(child: Text(event.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
-              ],
-            ),
-          ),
-
-
-          SizedBox(
-            height: 250,
-            child: event.images.isNotEmpty
-                ? PageView.builder(
-              itemCount: event.images.length,
-              itemBuilder: (context, index) {
-                return Image.network(
-                  event.images[index],
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300], child: const Icon(Icons.broken_image, size: 50, color: Colors.grey)),
-                );
-              },
-            )
-                : Container(
-              color: Colors.grey[200],
-              child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Image.asset('assets/images/logo.png', width: 60), const SizedBox(height: 10), const Text("Sin imágenes disponibles", style: TextStyle(color: Colors.grey))])),
-            ),
-          ),
-
-
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            color: _getSeverityColor(event.severity).withOpacity(0.2),
-            child: Center(child: Text("NIVEL DE SEVERIDAD: ${event.severity.toUpperCase()}", style: TextStyle(color: _getSeverityColor(event.severity), fontWeight: FontWeight.bold, letterSpacing: 1.5))),
-          ),
-
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _DetailRow(icon: Icons.calendar_today, label: "Fecha:", value: event.date),
-                _DetailRow(icon: Icons.location_on, label: "Ubicación:", value: event.location),
-                _DetailRow(icon: Icons.source, label: "Fuente:", value: event.source),
-
-                const SizedBox(height: 20),
-                const Text("Descripción del Evento", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 10),
-                Text(event.description, style: const TextStyle(fontSize: 14, height: 1.5, color: Colors.black87), textAlign: TextAlign.justify),
-
-                const SizedBox(height: 30),
-
-
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue[800],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    icon: const Icon(Icons.map),
-                    label: const Text("VER UBICACIÓN EN EL MAPA"),
-                    onPressed: () {
-                      if (widget.onMapRequest != null) {
-                        widget.onMapRequest!(event.coords);
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Mapa no disponible")));
-                      }
-                    },
-                  ),
-                )
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
 
   Widget _buildEmergencySection() {
     return Container(
         padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(color: const Color(0xFFCF0A2C), borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(30), bottomRight: Radius.circular(30)), boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))]),
+        decoration: BoxDecoration(
+            color: const Color(0xFFCF0A2C), // Rojo Apu Waqay
+            borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(30), bottomRight: Radius.circular(30)),
+            boxShadow: [
+              BoxShadow(color: Colors.red.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))
+            ]
+        ),
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text("Canales Oficiales", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 15),
-              Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                HistoryContactButton(icon: Icons.local_police, label: "Policía", number: "105", onTap: () => _launchURL("tel:105")),
-                HistoryContactButton(icon: Icons.fire_truck, label: "Bomberos", number: "116", onTap: () => _launchURL("tel:116")),
-                HistoryContactButton(icon: Icons.support_agent, label: "INDECI", number: "115", onTap: () => _launchURL("tel:115")),
-                HistoryContactButton(icon: Icons.language, label: "Web", number: "Info", onTap: () => _launchURL("https://www.gob.pe/indeci")),
-              ]),
-            ]));
+              Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    // Usamos HistoryContactButton para evitar el choque de nombres anterior
+                    HistoryContactButton(icon: Icons.local_police, label: "Policía", number: "105", onTap: () => _launchURL("tel:105")),
+                    HistoryContactButton(icon: Icons.fire_truck, label: "Bomberos", number: "116", onTap: () => _launchURL("tel:116")),
+                    HistoryContactButton(icon: Icons.support_agent, label: "INDECI", number: "115", onTap: () => _launchURL("tel:115")),
+                    HistoryContactButton(icon: Icons.language, label: "Web", number: "Info", onTap: () => _launchURL("https://www.gob.pe/indeci")),
+                  ]
+              ),
+            ]
+        )
+    );
   }
 
-  Color _getSeverityColor(String severity) {
-    switch (severity) { case 'Alta': return Colors.red; case 'Media': return Colors.orange; default: return Colors.green; }
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]
+        ),
+        child: TextField(
+          controller: _searchController,
+          onChanged: (value) => setState(() => _searchQuery = value),
+          decoration: InputDecoration(
+            hintText: "Buscar por lugar o título...",
+            prefixIcon: const Icon(Icons.search, color: Colors.grey),
+            suffixIcon: _searchQuery.isNotEmpty
+                ? IconButton(icon: const Icon(Icons.clear, color: Colors.grey), onPressed: () { _searchController.clear(); setState(() => _searchQuery = ""); })
+                : null,
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(vertical: 15),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- CONEXIÓN DE DATOS A FIREBASE (LÓGICA INTACTA) ---
+  Widget _buildFirebaseList() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: StreamBuilder<List<HuaycoEvent>>(
+        stream: _firebaseService.getHistorialEventos(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(child: CircularProgressIndicator(color: Colors.red)),
+            );
+          }
+          if (snapshot.hasError) {
+            return Center(child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Text("Error de conexión:\n${snapshot.error}", textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+            ));
+          }
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return Center(child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Text("No hay eventos recientes.", style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+            ));
+          }
+
+          // Filtrado
+          List<HuaycoEvent> eventos = snapshot.data!;
+          if (_searchQuery.isNotEmpty) {
+            final q = _searchQuery.toLowerCase();
+            eventos = eventos.where((e) => e.titulo.toLowerCase().contains(q) || e.lugar.toLowerCase().contains(q)).toList();
+          }
+
+          if (eventos.isEmpty) {
+            return Center(child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Text("Sin resultados para '$_searchQuery'", style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+            ));
+          }
+
+          return ListView.builder(
+            shrinkWrap: true, // Importante para que ListView conviva dentro de SingleChildScrollView
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: eventos.length,
+            itemBuilder: (context, index) {
+              final evento = eventos[index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 15), // Separación elegante entre Cards
+                child: EventCard(
+                  event: evento,
+                  onTap: () {
+                    // Mantenemos la lógica de navegación a la vista de detalles
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => EventDetailScreen(
+                          event: evento,
+                          onMapRequest: widget.onMapRequest,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
   }
 }
 
-
-
-class _DetailRow extends StatelessWidget {
-  final IconData icon; final String label; final String value;
-  const _DetailRow({required this.icon, required this.label, required this.value});
-  @override
-  Widget build(BuildContext context) {
-    return Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, size: 20, color: Colors.grey), const SizedBox(width: 10), SizedBox(width: 80, child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54))), Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)))]));
-  }
-}
-
-// --- WIDGET LOCAL PARA LOS BOTONES DE CONTACTO ---
+// --- WIDGET PARA BOTONES DE EMERGENCIA RÁPIDOS ---
+// Mantenemos el estilo limpio que solicitaste (botón blanco sobre fondo rojo)
 class HistoryContactButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -348,15 +244,16 @@ class HistoryContactButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(15),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        width: 75, // Tamaño uniforme
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(15),
           boxShadow: [
             BoxShadow(
-              color: Colors.red.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 5,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
@@ -364,10 +261,17 @@ class HistoryContactButton extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: Colors.red[900], size: 32),
-            const SizedBox(height: 8),
-            Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-            Text(number, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+            Icon(icon, color: Colors.red[900], size: 28),
+            const SizedBox(height: 5),
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              number,
+              style: TextStyle(color: Colors.grey[600], fontSize: 10, fontWeight: FontWeight.w500),
+            ),
           ],
         ),
       ),

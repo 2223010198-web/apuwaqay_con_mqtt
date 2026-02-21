@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'data/services/global_alert_service.dart';
+
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+
+
+
 /*
 void main() {
   runApp(const ApuWaqayApp());
@@ -11,12 +17,13 @@ void main() {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Cargar credenciales ocultas
+  
   await dotenv.load(fileName: ".env");
 
-  // INICIAR EL VIGILANTE EN SEGUNDO PLANO
-  // Esto asegura que la app esté monitoreando incluso si el usuario minimiza la aplicación
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   await GlobalAlertService().init();
 
   runApp(const ApuWaqayApp());
