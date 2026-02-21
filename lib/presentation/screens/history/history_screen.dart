@@ -26,6 +26,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
+  HuaycoEvent? _selectedEvent;
 
   Future<void> _launchURL(String urlString) async {
     final Uri url = Uri.parse(urlString);
@@ -43,34 +44,54 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: Colors.grey[50], // Fondo claro Material Design
-      drawer: const SideMenu(),
-      // Reemplazamos el AppBar por un Header personalizado en el body
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildCustomHeader(),
-            _buildEmergencySection(),
-            const SizedBox(height: 20),
-            _buildSearchBar(),
-            const SizedBox(height: 20),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
-              child: Text("Registro de Eventos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 10),
-            _buildFirebaseList(), // Aquí se inyecta Firebase
-          ],
-        ),
+    return PopScope(
+      canPop: _selectedEvent == null,
+      onPopInvoked: (didPop) {
+        if (!didPop && _selectedEvent != null) {
+          setState(() => _selectedEvent = null); // Regresa a la lista
+        }
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: Colors.grey[50],
+        drawer: const SideMenu(),
+
+        // MAGIA AQUÍ: Mostramos los detalles o la lista general
+        body: _selectedEvent != null
+            ? EventDetailScreen(
+          event: _selectedEvent!,
+          onMapRequest: widget.onMapRequest,
+          onBack: () => setState(() => _selectedEvent = null), // Cierra los detalles
+        )
+            : _buildMainContent(),
       ),
     );
   }
 
   // --- WIDGETS DE DISEÑO (UI/UX) ---
+  Widget _buildMainContent() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildCustomHeader(),
+          _buildEmergencySection(),
+          const SizedBox(height: 20),
+          _buildSearchBar(),
+          const SizedBox(height: 20),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: Text("Registro de Eventos", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 10),
+          _buildFirebaseList(), // Aquí se inyecta Firebase
+        ],
+      ),
+    );
+  }
+
 
   Widget _buildCustomHeader() {
     return Container(
@@ -201,16 +222,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: EventCard(
                   event: evento,
                   onTap: () {
-                    // Mantenemos la lógica de navegación a la vista de detalles
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => EventDetailScreen(
-                          event: evento,
-                          onMapRequest: widget.onMapRequest,
-                        ),
-                      ),
-                    );
+                    // Actualizamos el estado para mostrar los detalles en la misma pantalla
+                    setState(() {
+                      _selectedEvent = evento;
+                    });
                   },
                 ),
               );

@@ -5,8 +5,9 @@ import '../../../domain/models/huayco_event.dart';
 class EventDetailScreen extends StatelessWidget {
   final HuaycoEvent event;
   final Function(LatLng)? onMapRequest;
+  final VoidCallback onBack;
 
-  const EventDetailScreen({super.key, required this.event, this.onMapRequest});
+  const EventDetailScreen({super.key, required this.event, this.onMapRequest, required this.onBack});
 
   // Determina el color dinámico basado en el texto del impacto/severidad
   Color _getSeverityColor(String impacto) {
@@ -43,7 +44,7 @@ class EventDetailScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           if (event.coordenadas != null && onMapRequest != null) {
-            Navigator.pop(context); // Cierra la pantalla de detalles
+            onBack(); // Cierra la pantalla de detalles
             onMapRequest!(event.coordenadas!); // Ejecuta la función para ir al mapa
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -73,7 +74,7 @@ class EventDetailScreen extends StatelessWidget {
         children: [
           IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.black87),
-            onPressed: () => Navigator.pop(context), // Cierra la pantalla
+            onPressed: onBack, // Cierra la pantalla
           ),
           Expanded(
             child: Text(
