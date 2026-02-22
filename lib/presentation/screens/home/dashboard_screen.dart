@@ -79,7 +79,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       setState(() {
         _isDemoModeActive = demoData['activado'] ?? false;
 
-        // Si el modo demo está activado, sobrescribimos la pantalla con datos de Firebase
         if (_isDemoModeActive) {
           alertLevel = (demoData['nivel_alerta'] ?? 0 as num).toInt();
           riverLevel = (demoData['rio'] ?? 1.2 as num).toDouble();
