@@ -9,6 +9,9 @@ import 'package:http/http.dart' as http;
 // --- SERVICIOS Y MODELOS ---
 import '../../../data/services/firebase_service.dart';
 import '../../../domain/models/sensor_zone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../domain/models/contact_location.dart';
+
 
 class MapScreen extends StatefulWidget {
   final LatLng? initialCoords;
@@ -34,9 +37,17 @@ class _MapScreenState extends State<MapScreen> {
 
   final LatLng _defaultCenter = const LatLng(-11.936, -76.692);
 
+  String? _myPhone;
+  List<String> _mySosContacts = [];
+  bool _isRealtimeEnabled = false;
+  StreamSubscription<Position>? _positionStream; // Para enviar mi GPS
+  StreamSubscription<List<ContactLocation>>? _contactsStream; // Para recibir a mis familiares
+  List<ContactLocation> _matchedContacts = []; // Lista para dibujar en el mapa
+
   @override
   void initState() {
     super.initState();
+    _loadPreferencesAndTracking();
 
     if (widget.initialCoords != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -46,7 +57,106 @@ class _MapScreenState extends State<MapScreen> {
       _getCurrentLocation();
     }
   }
+// --- LÓGICA DE TRACKING EN TIEMPO REAL ---
+  Future<void> _loadPreferencesAndTracking() async {
+    debugPrint("🔍 [TRACKING] Cargando preferencias...");
+    final prefs = await SharedPreferences.getInstance();
+    _myPhone = prefs.getString('userPhone');
+    _isRealtimeEnabled = prefs.getBool('sos_realtime') ?? false;
 
+    debugPrint("📱 [TRACKING] Mi Teléfono: $_myPhone | Tracking Activado: $_isRealtimeEnabled");
+
+    String c1 = prefs.getString('sos_contact_1') ?? '';
+    String c2 = prefs.getString('sos_contact_2') ?? '';
+    if (c1.isNotEmpty) _mySosContacts.add(c1);
+    if (c2.isNotEmpty) _mySosContacts.add(c2);
+
+    debugPrint("👥 [TRACKING] Mis Contactos SOS: $_mySosContacts");
+
+    // 1. Si habilité el tracking en Ajustes, empiezo a enviar mi ubicación a Firebase
+    if (_isRealtimeEnabled && _myPhone != null) {
+      _startSharingMyLocation();
+    } else {
+      debugPrint("⚠️ [TRACKING] No se inició el envío: Tracking apagado o teléfono nulo.");
+    }
+
+    // 2. Escuchar a mis familiares en tiempo real y actualizar la UI
+    if (_myPhone != null && _mySosContacts.isNotEmpty) {
+      debugPrint("📡 [TRACKING] Escuchando la ubicación de mis contactos SOS...");
+      _contactsStream = _firebaseService.streamMatchedContacts(_myPhone!, _mySosContacts).listen((contacts) {
+        debugPrint("🔄 [TRACKING] Recibí actualización de Firebase: ${contacts.length} contactos hicieron Match.");
+        if (mounted) setState(() => _matchedContacts = contacts);
+      }, onError: (error) {
+        debugPrint("❌ [TRACKING] Error en el Stream de Firebase: $error");
+      });
+    }
+  }
+
+  // NUEVA VERSIÓN ROBUSTA CON MANEJO DE PERMISOS Y LOGS
+  Future<void> _startSharingMyLocation() async {
+    debugPrint("🚀 [TRACKING] Iniciando _startSharingMyLocation...");
+
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // 1. Verificar si el GPS (Hardware) está encendido
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      debugPrint("❌ [TRACKING] ERROR: El GPS del celular está APAGADO.");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Enciende el GPS para compartir tu ubicación en tiempo real."))
+        );
+      }
+      return;
+    }
+
+    // 2. Verificar Permisos de la App
+    permission = await Geolocator.checkPermission();
+    debugPrint("🔐 [TRACKING] Estado del permiso actual: $permission");
+
+    if (permission == LocationPermission.denied) {
+      debugPrint("🔐 [TRACKING] Solicitando permisos al usuario...");
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        debugPrint("❌ [TRACKING] ERROR: El usuario denegó el permiso de ubicación.");
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      debugPrint("❌ [TRACKING] ERROR FATAL: Permisos denegados para siempre. Debe ir a ajustes del celular.");
+      return;
+    }
+
+    debugPrint("✅ [TRACKING] Permisos y GPS correctos. Iniciando ráfaga de ubicación (PositionStream)...");
+
+    // 3. Iniciar el Stream si todo está correcto
+    // (Reduje el distanceFilter a 5 metros para que actualice más rápido mientras haces las pruebas)
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5),
+    ).listen((Position position) {
+
+      debugPrint("🎯 [TRACKING] Nueva coordenada GPS detectada: ${position.latitude}, ${position.longitude}");
+
+      // Enviamos a Firebase y agregamos logs para saber si la subida fue exitosa
+      _firebaseService.updateUbicacionActual(_myPhone!, LatLng(position.latitude, position.longitude))
+          .then((_) => debugPrint("☁️ [TRACKING] ¡Subida a Firebase EXITOSA!"))
+          .catchError((error) => debugPrint("❌ [TRACKING] Falló la subida a Firebase: $error"));
+
+    }, onError: (error) {
+      debugPrint("❌ [TRACKING] Error en el PositionStream del GPS: $error");
+    });
+  }
+
+  @override
+  void dispose() {
+    // IMPORTANTE: Apagar el GPS y Firebase al salir del mapa para no gastar batería
+    _positionStream?.cancel();
+    _contactsStream?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
   @override
   void didUpdateWidget(MapScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -211,6 +321,25 @@ class _MapScreenState extends State<MapScreen> {
                     children: [
                       Icon(Icons.location_on, color: Colors.purple, size: 40),
                       Text("Evento", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.purple, backgroundColor: Colors.white)),
+                    ],
+                  ),
+                )
+            );
+          }
+
+          for (var contact in _matchedContacts) {
+            markers.add(
+                Marker(
+                  point: contact.coordenadas,
+                  width: 70, height: 70,
+                  child: Column(
+                    children: [
+                      const Icon(Icons.person_pin_circle, color: Colors.green, size: 40),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(5), border: Border.all(color: Colors.green)),
+                        child: Text(contact.nombre, style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold)),
+                      )
                     ],
                   ),
                 )
