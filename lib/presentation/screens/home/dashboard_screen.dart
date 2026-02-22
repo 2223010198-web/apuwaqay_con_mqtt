@@ -5,6 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart'; // Importación para permisos
 import '../../../data/services/global_alert_service.dart';
 import '../../../app_routes.dart';
+// ------------- SOLO PARA DEMO
+import '../../../data/services/demo_mode_service.dart';
+//-------------- SOLO PARA DEMO
 
 // --- SERVICIOS CON CLEAN ARCHITECTURE ---
 import '../../../data/services/mqtt_service.dart';
@@ -33,6 +36,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   final SosService _sosService = SosService();
   final SimulationService _simulationService = SimulationService();
   final PermissionService _permissionService = PermissionService();
+  // ------------- SOLO PARA DEMO
+  final DemoModeService _demoModeService = DemoModeService();
+  // ------------- SOLO PARA DEMO
 
   // 2. Variables de Estado UI
   int alertLevel = 0;
@@ -40,6 +46,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   bool sosEnabled = true;
   bool realTime = false;
   bool _missingPermissions = true; // Controla el botón de advertencia amarillo
+  // ------------- SOLO PARA DEMO
+  bool _isDemoModeActive = false;
+  // ------------- SOLO PARA DEMO
 
   double vibrationIntensity = 0.0;
   double rainLevel = 0.0;
@@ -62,9 +71,36 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     await _checkPermissionsStatus();
     _loadUserData();
 
-    // Escuchamos el stream de datos MQTT (Que es alimentado por la Raspberry o el Simulador)
+    // ------------- SOLO PARA DEMO
+    // --- ESCUCHA DEL MODO DEMO (FIREBASE) ---
+    _demoModeService.getDemoState().listen((demoData) {
+      if (!mounted || demoData == null) return;
+
+      setState(() {
+        _isDemoModeActive = demoData['activado'] ?? false;
+
+        // Si el modo demo está activado, sobrescribimos la pantalla con datos de Firebase
+        if (_isDemoModeActive) {
+          alertLevel = (demoData['nivel_alerta'] ?? 0 as num).toInt();
+          riverLevel = (demoData['rio'] ?? 1.2 as num).toDouble();
+          rainLevel = (demoData['lluvia'] ?? 0.0 as num).toDouble();
+          vibrationIntensity = (demoData['vibracion'] ?? 0.0 as num).toDouble();
+          iaConfidence = (demoData['probabilidad'] ?? 0.0 as num).toDouble();
+
+          etaHuayco = alertLevel == 2 ? "IMPACTO INMINENTE" : (alertLevel == 1 ? "Posible en 45 min" : "");
+        }
+      });
+    });
+    // ------------- SOLO PARA DEMO
+
+
     _mqttService.dataStream.listen((data) {
       if (!mounted) return;
+
+      // ------------- SOLO PARA DEMO
+      if (_isDemoModeActive) return;
+      // ------------- SOLO PARA DEMO
+
       setState(() {
         riverLevel = (data['rio'] ?? 1.2 as num).toDouble();
         rainLevel = (data['lluvia'] ?? 0.0 as num).toDouble();
