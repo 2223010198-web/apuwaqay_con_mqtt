@@ -88,35 +88,40 @@ class MqttService {
     _isConnected = false;
   }
 
-  // --- NUEVA LÓGICA DE ALERTA AUTOMÁTICA EN BACKGROUND ---
-  Future<void> _evaluarEmergenciaAutomatica(Map<String, dynamic> data) async {
-    int alertLevel = (data['nivel_alerta'] ?? 0 as num).toInt();
+  bool _isProcessingSos = false;
 
-    // Si NO es huayco (Nivel 2), salimos inmediatamente
+  // --- LÓGICA DE ALERTA AUTOMÁTICA EN BACKGROUND ---
+  Future<void> _evaluarEmergenciaAutomatica(Map<String, dynamic> data) async {
+    // 1. SI LA PUERTA ESTÁ CERRADA, IGNORAMOS EL MENSAJE INMEDIATAMENTE
+    if (_isProcessingSos) return;
+
+    int alertLevel = (data['nivel_alerta'] ?? 0 as num).toInt();
     if (alertLevel != 2) return;
 
-    final prefs = await SharedPreferences.getInstance();
+    // 2. CERRAMOS LA PUERTA (Nadie más puede entrar a enviar SMS)
+    _isProcessingSos = true;
 
-    // Recargar preferencias por si se modificaron desde otra parte de la app
-    await prefs.reload();
-    bool isAutoSendEnabled = prefs.getBool('sos_auto_send') ?? false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      bool isAutoSendEnabled = prefs.getBool('sos_auto_send') ?? false;
 
-    if (!isAutoSendEnabled) return;
+      if (!isAutoSendEnabled) return; // Si la configuración está apagada, salimos
 
-    // SISTEMA ANTI-SPAM (Solo 1 SMS automático cada 10 minutos)
-    int lastSent = prefs.getInt('last_sos_sent_time') ?? 0;
-    int now = DateTime.now().millisecondsSinceEpoch;
+      int lastSent = prefs.getInt('last_sos_sent_time') ?? 0;
+      int now = DateTime.now().millisecondsSinceEpoch;
 
-    if (now - lastSent > 600000) {
-      await prefs.setInt('last_sos_sent_time', now);
+      // SISTEMA ANTI-SPAM (1 SMS cada 10 minutos)
+      if (now - lastSent > 600000) {
+        // 3. ACTUALIZAMOS EL TIEMPO ANTES DE EMPEZAR EL ENVÍO (Vital)
+        await prefs.setInt('last_sos_sent_time', now);
 
-      debugPrint("🚨 [ALERTA AUTOMÁTICA] ¡Huayco detectado! Obteniendo GPS...");
+        debugPrint("🚨 [CERROJO ACTIVO] Huayco detectado. Evitando duplicados...");
 
-      final locationService = LocationService();
-      final sosService = SosService();
-      String userName = prefs.getString('userName') ?? "Usuario";
+        final locationService = LocationService();
+        final sosService = SosService();
+        String userName = prefs.getString('userName') ?? "Usuario";
 
-      try {
         final position = await locationService.getCurrentOrLastPosition();
         await sosService.sendSOSAlert(
             position: position,
@@ -124,12 +129,14 @@ class MqttService {
             isAuto: true,
             isTracking: locationService.isTracking
         );
-        debugPrint("✅ [ALERTA AUTOMÁTICA] SMS enviado con éxito.");
-      } catch (e) {
-        debugPrint("❌ [ALERTA AUTOMÁTICA] Error al enviar SMS automático: $e");
-        // Revertir el tiempo si falló para que intente en el próximo pulso
-        await prefs.setInt('last_sos_sent_time', lastSent);
+        debugPrint("✅ [ALERTA AUTOMÁTICA] ÚNICO SMS enviado con éxito.");
       }
+    } catch (e) {
+      debugPrint("❌ Error crítico en envío automático: $e");
+    } finally {
+      // 4. ABRIMOS LA PUERTA (Solo se ejecuta cuando todo el proceso terminó o falló)
+      // Como SharedPreferences ya guardó el tiempo, los próximos mensajes esperarán 10 min.
+      _isProcessingSos = false;
     }
   }
 }
