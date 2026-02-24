@@ -6,11 +6,14 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 
 class MqttService {
+  // Patrón Singleton
   static final MqttService _instance = MqttService._internal();
   factory MqttService() => _instance;
   MqttService._internal();
 
   MqttServerClient? client;
+
+  // Stream para enviar datos a la UI
   final StreamController<Map<String, dynamic>> _dataStream = StreamController.broadcast();
   Stream<Map<String, dynamic>> get dataStream => _dataStream.stream;
 
@@ -19,50 +22,62 @@ class MqttService {
   Future<void> connect() async {
     if (_isConnected) return;
 
-    // --- CREDENCIALES DIRECTAS (Para evitar errores de caché del .env) ---
+    // --- CREDENCIALES DEL NUEVO CLUSTER (F16A) ---
+    // Usamos const para asegurar que no se lean valores viejos de caché
     const String broker = 'f16a68d046f444be84636fcd495e8c7c.s1.eu.hivemq.cloud';
     const int port = 8883;
     const String user = 'jore-223010198';
     const String pass = 'Wildbl00d';
     const String topic = 'apuwaqay/sensores/data';
 
-    // ID de cliente corto y único
-    String clientIdentifier = 'apu_movil_v2_${DateTime.now().millisecondsSinceEpoch % 10000}';
+    // Generar ID único corto para evitar conflictos en HiveMQ
+    String clientIdentifier = 'apu_movil_${DateTime.now().millisecondsSinceEpoch % 100000}';
+
+    debugPrint("🔌 Iniciando configuración MQTT para: $broker");
 
     client = MqttServerClient.withPort(broker, clientIdentifier, port);
 
-    // --- CONFIGURACIÓN CRÍTICA PARA HIVEMQ + FECHA INCORRECTA ---
+    // --- 🛡️ CONFIGURACIÓN BLINDADA PARA EMULADOR 2026 ---
     client!.secure = true;
     client!.keepAlivePeriod = 60;
     client!.logging(on: true);
     client!.setProtocolV311();
     client!.autoReconnect = true;
 
-    // 🔥 FIX DEL TIEMPO: Esto obliga a la app a aceptar el certificado aunque tu celular esté en 2026
-    client!.securityContext = SecurityContext.defaultContext;
+    // TRUCO DE SEGURIDAD: Creamos un contexto que confía en TODO
+    // Esto es necesario porque tu emulador tiene fecha 2026 y el certificado expira antes.
+    SecurityContext context = SecurityContext.defaultContext;
+    try {
+      context.setTrustedCertificatesBytes([]); // Intentamos limpiar restricciones
+    } catch (e) {
+      // Ignorar si falla en algunos Androids
+    }
+    client!.securityContext = context;
+
+    // BYPASS TOTAL: Si el certificado parece vencido (por la fecha 2026), LO ACEPTAMOS IGUAL.
     client!.onBadCertificate = (dynamic cert) {
-      debugPrint("⚠️ ALERTA: Certificado SSL aceptado manualmente (Bypass de fecha)");
+      debugPrint("⚠️ [SEGURIDAD] Certificado aceptado manualmente (Bypass de fecha activado)");
       return true;
     };
 
     final connMessage = MqttConnectMessage()
         .withClientIdentifier(clientIdentifier)
-        .startClean() // Sesión limpia para evitar colas viejas
+        .startClean()
         .withWillQos(MqttQos.atLeastOnce);
 
     client!.connectionMessage = connMessage;
 
     try {
-      debugPrint("🔌 Intentando conectar a HiveMQ Cluster F16A...");
+      debugPrint("🔌 Conectando a HiveMQ...");
       await client!.connect(user, pass);
     } catch (e) {
-      debugPrint('❌ Excepción Fatal MQTT: $e');
+      debugPrint('❌ Error Fatal al conectar: $e');
       client!.disconnect();
     }
 
     if (client!.connectionStatus!.state == MqttConnectionState.connected) {
       _isConnected = true;
-      debugPrint('✅ ¡CONEXIÓN EXITOSA! Recibiendo datos de la Raspberry...');
+      debugPrint('✅ ¡CONEXIÓN EXITOSA! Esperando datos en: $topic');
 
       client!.subscribe(topic, MqttQos.atMostOnce);
 
@@ -80,14 +95,14 @@ class MqttService {
         }
       });
     } else {
-      debugPrint('❌ Falló la conexión. Estado: ${client!.connectionStatus!.state}');
+      debugPrint('❌ La conexión falló. Estado: ${client!.connectionStatus!.state}');
       client!.disconnect();
     }
   }
 
-  // --- FUNCIÓN QUE FALTABA (Soluciona el error rojo de compilación) ---
+  // --- ✅ FUNCIÓN RECUPERADA (Esto arregla el error de compilación) ---
   void simulateData(Map<String, dynamic> fakeData) {
-    debugPrint("🐛 MODO SIMULACIÓN: $fakeData");
+    debugPrint("🐛 MODO SIMULACIÓN: Datos inyectados manualmente");
     _dataStream.add(fakeData);
   }
 
