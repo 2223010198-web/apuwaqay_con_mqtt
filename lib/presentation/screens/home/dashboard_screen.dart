@@ -62,6 +62,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     await _checkPermissionsStatus();
     _loadUserData();
 
+    // 🔥 FIX CRÍTICO: CONECTAR AL SERVIDOR MQTT 🔥
+    // Sin esta línea, la app nunca se conecta y no recibe datos de la Raspberry
+    _mqttService.connect();
+
     // Escuchamos el stream de datos MQTT (Que es alimentado por la Raspberry o el Simulador)
     _mqttService.dataStream.listen((data) {
       if (!mounted) return;
@@ -76,15 +80,13 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       });
     });
 
-
-
     GlobalAlertService().eventStream.listen((mensaje) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(mensaje),
               backgroundColor: Colors.green,
-              duration: const Duration(seconds: 5), // Dura un poco más en pantalla
+              duration: const Duration(seconds: 5),
             )
         );
       }
