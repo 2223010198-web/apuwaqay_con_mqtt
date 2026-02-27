@@ -3,13 +3,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:latlong2/latlong.dart'; // Necesario para LatLng
 
 import 'location_service.dart';
 import 'sos_service.dart';
 import 'notification_service.dart';
 import 'vibration_service.dart';
+import 'firebase_service.dart'; // 1️⃣ Conexión directa con FirebaseService
 
-// 1️⃣ State Machine Formal
 enum EmergencyState {
   normal,
   preventivo,
@@ -18,7 +19,6 @@ enum EmergencyState {
   emergenciaFinalizada
 }
 
-// 2️⃣ Emergency Orchestrator Central (Mantiene el nombre de clase exigido)
 class GlobalAlertService {
   static final GlobalAlertService _instance = GlobalAlertService._internal();
   factory GlobalAlertService() => _instance;
@@ -28,6 +28,7 @@ class GlobalAlertService {
   final SosService _sosService = SosService();
   final NotificationService _notificationService = NotificationService();
   final VibrationService _vibrationService = VibrationService();
+  final FirebaseService _firebaseService = FirebaseService();
 
   final StreamController<String> _eventStreamController = StreamController<String>.broadcast();
   Stream<String> get eventStream => _eventStreamController.stream;
@@ -38,7 +39,6 @@ class GlobalAlertService {
   int _currentAlertLevel = 0;
   bool _isInitialized = false;
 
-  // 3️⃣ Sistema de Idempotencia (Garantiza acción única por evento)
   bool _smsSentForCurrentEvent = false;
   bool _trackingActiveForCurrentEvent = false;
 
@@ -48,7 +48,6 @@ class GlobalAlertService {
 
     await _notificationService.init();
 
-    // Reemplazo total de MQTT por Firestore Listener Centralizado
     _firestoreSubscription = FirebaseFirestore.instance
         .collection('sensores')
         .doc('monitor_principal')
@@ -67,7 +66,6 @@ class GlobalAlertService {
       _currentAlertLevel = newLevel;
       await _transitionState(newLevel);
     } else {
-      // Reevalúa condiciones pasivamente si hay actualizaciones sin cambio de estado
       await evaluateReactiveConditions();
     }
   }
@@ -91,9 +89,10 @@ class GlobalAlertService {
       _currentState = EmergencyState.alertaRoja;
       _notificationService.showDangerNotification();
       _vibrationService.startDangerVibration();
-      await evaluateReactiveConditions(); // Dispara evaluación inmediata
+      await evaluateReactiveConditions();
     }
   }
+  // --- CONTINUACIÓN: lib/data/services/global_alert_service.dart ---
 
   void _resetIdempotency() {
     _smsSentForCurrentEvent = false;
@@ -108,11 +107,23 @@ class GlobalAlertService {
     bool sosEnabled = prefs.getBool('sos_enabled') ?? true;
     bool autoSend = prefs.getBool('sos_auto_send') ?? false;
     bool realTime = prefs.getBool('sos_realtime') ?? false;
+    String? miCelular = prefs.getString('userPhone');
 
-    // A. Reactividad de Rastreo GPS
+    // A. Reactividad de Rastreo GPS -> CONEXIÓN DIRECTA E INMEDIATA A FIREBASE
     if (realTime && !_trackingActiveForCurrentEvent && !_locationService.isTracking) {
       _trackingActiveForCurrentEvent = true;
-      _locationService.startTracking(onPositionUpdate: (_) {});
+
+      _locationService.startTracking(onPositionUpdate: (position) {
+        // 🚀 SUBIDA REACTIVA EN TIEMPO REAL: Cada pulso del GPS va a Firestore
+        if (miCelular != null && miCelular.isNotEmpty) {
+          _firebaseService.updateUbicacionActual(
+              miCelular,
+              LatLng(position.latitude, position.longitude)
+          );
+          debugPrint("☁️ FirebaseService: Ubicación de $miCelular actualizada en la nube.");
+        }
+      });
+
     } else if (!realTime && _locationService.isTracking) {
       _trackingActiveForCurrentEvent = false;
       _locationService.stopTracking();
@@ -148,6 +159,8 @@ class GlobalAlertService {
 
   void dispose() {
     _firestoreSubscription?.cancel();
+    _locationService.stopTracking();
+    _eventStreamController.close();
     _isInitialized = false;
   }
 }

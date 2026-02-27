@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../data/services/global_alert_service.dart'; // 1️⃣ Importamos el orquestador
+import '../../../data/services/global_alert_service.dart'; // 1️⃣ Importación del Orquestador
 
 class EditSosScreen extends StatefulWidget {
   const EditSosScreen({super.key});
@@ -48,8 +48,9 @@ class _EditSosScreenState extends State<EditSosScreen> {
     await _saveDataLocally();
     await _syncWithFirebase();
 
-    // 2️⃣ DISPARADOR REACTIVO: Forzamos la reevaluación inmediata en el orquestador
-    // Esto resuelve el problema crítico de activar SMS o rastreo si ya estamos en alerta roja.
+    // 2️⃣ DISPARADOR REACTIVO DE PRODUCCIÓN
+    // Obliga al Orquestador a evaluar los nuevos estados inmediatamente,
+    // activando el GPS hacia Firebase o el SMS automático sin reiniciar la app.
     await GlobalAlertService().evaluateReactiveConditions();
 
     if (mounted) {
