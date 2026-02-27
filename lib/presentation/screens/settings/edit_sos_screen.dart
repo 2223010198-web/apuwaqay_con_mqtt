@@ -1,6 +1,8 @@
+// lib/presentation/screens/settings/edit_sos_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // <--- NUEVA IMPORTACIÓN
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../data/services/global_alert_service.dart'; // 1️⃣ Importamos el orquestador
 
 class EditSosScreen extends StatefulWidget {
   const EditSosScreen({super.key});
@@ -10,13 +12,12 @@ class EditSosScreen extends StatefulWidget {
 }
 
 class _EditSosScreenState extends State<EditSosScreen> {
-  // --- CONTROLADORES Y ESTADO ---
   final _contact1Controller = TextEditingController();
   final _contact2Controller = TextEditingController();
 
   bool _autoSend = false;
   bool _realTime = false;
-  bool _isLoading = false; // Indicador visual de guardado
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -26,15 +27,10 @@ class _EditSosScreenState extends State<EditSosScreen> {
 
   @override
   void dispose() {
-    // Liberar memoria
     _contact1Controller.dispose();
     _contact2Controller.dispose();
     super.dispose();
   }
-
-  // ==========================================================
-  // LÓGICA DE DATOS Y SINCRONIZACIÓN
-  // ==========================================================
 
   void _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -46,22 +42,22 @@ class _EditSosScreenState extends State<EditSosScreen> {
     });
   }
 
-  // Función orquestadora que llama al guardado local y en la nube
   Future<void> _saveSettings() async {
     setState(() => _isLoading = true);
 
-    // 1. Guardar en el teléfono (Garantiza el funcionamiento de SMS offline)
     await _saveDataLocally();
-
-    // 2. Sincronizar con Firebase (Para el mapa en tiempo real)
     await _syncWithFirebase();
+
+    // 2️⃣ DISPARADOR REACTIVO: Forzamos la reevaluación inmediata en el orquestador
+    // Esto resuelve el problema crítico de activar SMS o rastreo si ya estamos en alerta roja.
+    await GlobalAlertService().evaluateReactiveConditions();
 
     if (mounted) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Configuración SOS Guardada exitosamente"))
       );
-      Navigator.pop(context, true); // Retorna true para refrescar la vista anterior
+      Navigator.pop(context, true);
     }
   }
 
@@ -79,7 +75,6 @@ class _EditSosScreenState extends State<EditSosScreen> {
       final String? miCelular = prefs.getString('userPhone');
 
       if (miCelular != null && miCelular.isNotEmpty) {
-        // Armamos el array solo con los campos que tienen texto
         List<String> misContactos = [];
         final c1 = _contact1Controller.text.trim();
         final c2 = _contact2Controller.text.trim();
@@ -87,20 +82,14 @@ class _EditSosScreenState extends State<EditSosScreen> {
         if (c1.isNotEmpty) misContactos.add(c1);
         if (c2.isNotEmpty) misContactos.add(c2);
 
-        // Actualizamos únicamente el campo 'contactos_sos' del usuario
         await FirebaseFirestore.instance.collection('usuarios').doc(miCelular).update({
           'contactos_sos': misContactos,
         });
       }
     } catch (e) {
-      // Si falla (ej. no hay internet), no detenemos la app porque ya se guardó localmente
       debugPrint("Sincronización en la nube pendiente por falta de red: $e");
     }
   }
-
-  // ==========================================================
-  // CONSTRUCCIÓN DE LA INTERFAZ (UI)
-  // ==========================================================
 
   @override
   Widget build(BuildContext context) {
@@ -113,7 +102,6 @@ class _EditSosScreenState extends State<EditSosScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          // 1. Destinatario Principal
           const Card(
             child: ListTile(
               leading: Icon(Icons.shield, color: Colors.indigo),
@@ -123,8 +111,6 @@ class _EditSosScreenState extends State<EditSosScreen> {
             ),
           ),
           const SizedBox(height: 20),
-
-          // 2. Contactos Extra
           const Text("Contactos Adicionales (SMS)", style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           TextField(
@@ -146,10 +132,7 @@ class _EditSosScreenState extends State<EditSosScreen> {
                 prefixIcon: Icon(Icons.person_add)
             ),
           ),
-
           const Divider(height: 40),
-
-          // 3. Configuraciones Avanzadas
           SwitchListTile(
             title: const Text("Envío Automático"),
             subtitle: const Text("Enviar ubicación SMS automáticamente si hay PELIGRO de Huayco"),
@@ -164,7 +147,6 @@ class _EditSosScreenState extends State<EditSosScreen> {
             activeColor: Colors.blue,
             onChanged: (v) => setState(() => _realTime = v),
           ),
-
           const SizedBox(height: 30),
           ElevatedButton(
             onPressed: _isLoading ? null : _saveSettings,

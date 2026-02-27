@@ -16,6 +16,7 @@ import '../../../data/services/simulation_service.dart';
 import '../../../data/services/permission_service.dart';
 import '../../../data/services/vibration_service.dart';
 import '../../../data/services/notification_service.dart';
+import '../../../data/services/global_alert_service.dart'; // 1️⃣ Integración del Orquestador
 
 // --- COMPONENTES ---
 import '../../widgets/emergency_button.dart';
@@ -32,19 +33,24 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
+  // 1. Instancias de Servicios (Se mantienen intactas por regla estricta)
   final LocationService _locationService = LocationService();
   final SosService _sosService = SosService();
   final SimulationService _simulationService = SimulationService();
   final PermissionService _permissionService = PermissionService();
   final VibrationService _vibrationService = VibrationService();
   final NotificationService _notificationService = NotificationService();
+  final GlobalAlertService _globalAlertService = GlobalAlertService();
 
+  // 2. Conexión a Firebase
   final DocumentReference _sensorDoc = FirebaseFirestore.instance
       .collection('sensores')
       .doc('monitor_principal');
 
   StreamSubscription<DocumentSnapshot>? _sensorSubscription;
+  StreamSubscription<String>? _eventSubscription;
 
+  // 3. Variables de Estado UI
   int alertLevel = 0;
   int _previousAlertLevel = 0;
   bool isConnected = false;
@@ -70,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 
   Future<void> _initApp() async {
-    await _notificationService.init();
+    await _globalAlertService.init(); // 2️⃣ Orquestador inicia y toma control de hardware/SOS
     await _permissionService.requestAllPermissions();
     await _checkPermissionsStatus();
     _loadUserData();
@@ -82,6 +88,19 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }, onError: (e) {
       debugPrint("❌ Error en Firebase: $e");
       if (mounted) setState(() => isConnected = false);
+    });
+
+    // 3️⃣ Escucha reactiva de eventos del orquestador (Toasts)
+    _eventSubscription = _globalAlertService.eventStream.listen((mensaje) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(mensaje),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 5),
+            )
+        );
+      }
     });
   }
 
@@ -104,6 +123,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkPermissionsStatus();
+      _globalAlertService.evaluateReactiveConditions(); // 4️⃣ Reevalúa si se cambiaron permisos por fuera
     }
   }
 
@@ -111,9 +131,13 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _sensorSubscription?.cancel();
+    _eventSubscription?.cancel();
     super.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // 🧠 CEREBRO LÓGICO: PROCESAMIENTO DE DATOS EN TIEMPO REAL (Solo UI)
+  // ---------------------------------------------------------------------------
   void _processSensorData(Map<String, dynamic> data) {
     if (!mounted) return;
 
@@ -123,18 +147,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     double newConfidence = (data['probabilidad_huayco'] ?? 0.0).toDouble();
     int newAlertLevel = (data['nivel_alerta'] ?? 0).toInt();
 
-    if (newAlertLevel != _previousAlertLevel) {
-      if (newAlertLevel == 0) {
-        _vibrationService.stopVibration();
-        _locationService.stopTracking();
-      } else if (newAlertLevel == 1) {
-        _locationService.stopTracking();
-        _vibrationService.startPrecautionVibration();
-        _notificationService.showPrecautionNotification();
-      } else if (newAlertLevel == 2) {
-        _triggerEmergencyProtocols();
-      }
-    }
+    // 5️⃣ La orquestación (Vibración, GPS, SMS) fue delegada a GlobalAlertService.
+    // El Dashboard ahora respeta Clean Architecture y se encarga puramente de reaccionar visualmente.
 
     setState(() {
       riverLevel = newRiver;
@@ -148,49 +162,14 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 
   Future<void> _triggerEmergencyProtocols() async {
-    debugPrint("🚨 ALERTA ROJA - ACTIVANDO PROTOCOLOS");
-
-    _vibrationService.startDangerVibration();
-    _notificationService.showDangerNotification();
-
-    if (realTime && !_locationService.isTracking) {
-      _locationService.startTracking(onPositionUpdate: (pos) {
-        if (mounted) setState(() {});
-      });
-    }
-
-    if (sosEnabled) {
-      final prefs = await SharedPreferences.getInstance();
-      bool autoSend = prefs.getBool('sos_auto_send') ?? false;
-
-      if (autoSend) {
-        final position = await _locationService.getCurrentOrLastPosition();
-        if (position != null) {
-          _sosService.sendSOSAlert(
-              position: position,
-              userName: userName,
-              isAuto: true,
-              isTracking: _locationService.isTracking
-          );
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("🆘 Alerta SOS enviada automáticamente."),
-                  backgroundColor: Colors.redAccent,
-                  duration: Duration(seconds: 5),
-                )
-            );
-          }
-        }
-      }
-    }
+    // Función mantenida por regla estricta (No eliminar funciones).
+    // Delegada completamente a GlobalAlertService.
   }
+  // --- CONTINUACIÓN: lib/presentation/screens/home/dashboard_screen.dart ---
 
   void _runSimulation() {
     final simulatedData = _simulationService.getNextSimulationState(alertLevel);
     _processSensorData(simulatedData);
-
     ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("🐛 Simulación: Datos inyectados localmente"),
