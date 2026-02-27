@@ -1,3 +1,5 @@
+// android/app/build.gradle.kts
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -15,7 +17,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-        // 1. ACTIVAMOS EL DESUGARING (Línea Nueva)
         isCoreLibraryDesugaringEnabled = true
     }
 
@@ -44,7 +45,8 @@ flutter {
     source = "../.."
 }
 
-// 2. AGREGAMOS LA DEPENDENCIA NECESARIA (Bloque Nuevo al final)
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    // Garantiza que ContextCompat y librerías base funcionen correctamente en MainActivity.kt
+    implementation("androidx.core:core-ktx:1.12.0")
 }
