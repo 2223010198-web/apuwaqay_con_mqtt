@@ -1,10 +1,7 @@
-// android/app/build.gradle.kts
-
+// android/app/build.gradle
 plugins {
     id("com.android.application")
-    // START: FlutterFire Configuration
     id("com.google.gms.google-services")
-    // END: FlutterFire Configuration
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -46,7 +43,9 @@ flutter {
 }
 
 dependencies {
+    // 1️⃣ Desugaring para compatibilidad con librerías Java 8+ en Androids antiguos
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
-    // Garantiza que ContextCompat y librerías base funcionen correctamente en MainActivity.kt
+
+    // 2️⃣ Core KTX requerido para ContextCompat y validación robusta de permisos en SDK 36
     implementation("androidx.core:core-ktx:1.12.0")
 }

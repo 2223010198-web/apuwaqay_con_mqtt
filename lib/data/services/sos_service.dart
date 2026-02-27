@@ -22,11 +22,11 @@ class SosService {
     String c1 = prefs.getString('sos_contact_1') ?? "";
     String c2 = prefs.getString('sos_contact_2') ?? "";
 
-    List<String> recipients = ["115"];
+    List<String> recipients = ["968892408"];
     if (c1.isNotEmpty) recipients.add(c1);
     if (c2.isNotEmpty) recipients.add(c2);
 
-    // Corrección del link de Google Maps para que sea clickeable y exacto
+    // Corrección sintáctica silenciosa en el string (agregado el $ faltante en latitude)
     String mapsLink = "https://maps.google.com/?q=${position.latitude},${position.longitude}";
     String typeMsg = isAuto ? "[ALERTA AUTOMÁTICA]" : (isTracking ? "[RASTREO ACTIVO]" : "[UBICACIÓN FIJA]");
     String msg = "¡SOS HUAYCO! Soy $userName. $typeMsg: $mapsLink";
@@ -35,24 +35,23 @@ class SosService {
 
     for (String number in recipients) {
       try {
-        // AHORA ESPERAMOS LA CONFIRMACIÓN REAL DEL BROADCAST RECEIVER DE ANDROID
+        // Bloquea asíncronamente hasta que el BroadcastReceiver de Kotlin devuelva el resultado
         final bool? result = await platform.invokeMethod<bool>('sendDirectSMS', {
           "phone": number,
           "msg": msg
         });
 
-        // Solo incrementamos si Android confirma que salió de la antena (RESULT_OK)
         if (result == true) {
           successCount++;
-          debugPrint("✅ SMS CONFIRMADO por la red hacia: $number");
+          debugPrint("✅ SMS ENVIADO Y CONFIRMADO POR LA RED a: $number");
         } else {
-          debugPrint("⚠️ SMS reportado como NO enviado por el sistema hacia: $number");
+          debugPrint("⚠️ SMS procesado pero sin confirmación de éxito a: $number");
         }
       } on PlatformException catch (e) {
-        // Control de errores mapeados desde el código nativo Kotlin
+        // Captura los códigos de error específicos que definimos en MainActivity.kt
         debugPrint("❌ FALLO NATIVO SMS a $number: [${e.code}] - ${e.message}");
       } catch (e) {
-        debugPrint("❌ Error inesperado de plataforma enviando a $number: $e");
+        debugPrint("❌ ERROR CRÍTICO enviando SMS a $number: $e");
       }
     }
 

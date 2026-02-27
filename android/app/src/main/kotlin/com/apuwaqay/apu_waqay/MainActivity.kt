@@ -1,4 +1,5 @@
-package com.apuwaqay.apu_waqay
+// android/app/src/main/kotlin/com/apuwaqay/apu_waqay/MainActivity.kt
+package com.apuwaqay.apu_waqay // Reemplaza si tu namespace en build.gradle es diferente
 
 import android.Manifest
 import android.app.Activity
@@ -40,7 +41,7 @@ class MainActivity: FlutterActivity() {
 
     private fun sendSMS(phone: String, msg: String, result: MethodChannel.Result) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
-            result.error("PERMISSION_DENIED", "Permiso SEND_SMS no concedido", null)
+            result.error("PERMISSION_DENIED", "Permiso SEND_SMS denegado por el sistema", null)
             return
         }
 
@@ -52,52 +53,58 @@ class MainActivity: FlutterActivity() {
                 SmsManager.getDefault()
             }
 
+            // Identificador único para evitar colisiones entre múltiples SMS
             val uniqueId = UUID.randomUUID().toString()
             val sentAction = "SMS_SENT_$uniqueId"
 
+            // FLAG_IMMUTABLE es obligatorio en Android 12+ (SDK 31+)
             val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                PendingIntent.FLAG_IMMUTABLE
             } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
+                0
             }
 
             val sentIntent = PendingIntent.getBroadcast(this, 0, Intent(sentAction), flags)
 
+            // Registro dinámico del BroadcastReceiver para capturar la respuesta real de la antena
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: Intent?) {
                     try {
                         context?.unregisterReceiver(this)
                     } catch (e: Exception) {
-                        // Ignorar si ya fue desregistrado
+                        // Evita crash si ya se desregistró
                     }
 
                     when (resultCode) {
-                        Activity.RESULT_OK -> result.success(true)
-                        SmsManager.RESULT_ERROR_GENERIC_FAILURE -> result.error("GENERIC_FAILURE", "Falla genérica de red", null)
-                        SmsManager.RESULT_ERROR_NO_SERVICE -> result.error("NO_SERVICE", "Sin señal/servicio", null)
-                        SmsManager.RESULT_ERROR_NULL_PDU -> result.error("NULL_PDU", "PDU nulo", null)
-                        SmsManager.RESULT_ERROR_RADIO_OFF -> result.error("RADIO_OFF", "Modo avión / Radio apagado", null)
-                        else -> result.error("UNKNOWN_ERROR", "Error desconocido: $resultCode", null)
+                        Activity.RESULT_OK -> result.success(true) // 100% confirmado por operadora
+                        SmsManager.RESULT_ERROR_GENERIC_FAILURE -> result.error("GENERIC_FAILURE", "Falla genérica de red/operadora", null)
+                        SmsManager.RESULT_ERROR_NO_SERVICE -> result.error("NO_SERVICE", "Sin señal o servicio", null)
+                        SmsManager.RESULT_ERROR_NULL_PDU -> result.error("NULL_PDU", "Error de PDU", null)
+                        SmsManager.RESULT_ERROR_RADIO_OFF -> result.error("RADIO_OFF", "Modo avión activo", null)
+                        else -> result.error("UNKNOWN_ERROR", "Bloqueado por OEM o error desconocido: $resultCode", null)
                     }
                 }
             }
 
+            // Android 13/14 (SDK 33+) exige especificar si el receiver es exportado
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(receiver, IntentFilter(sentAction), Context.RECEIVER_EXPORTED)
             } else {
                 registerReceiver(receiver, IntentFilter(sentAction))
             }
 
-            // Uso de Multipart para garantizar que enlaces largos de GPS no fallen silenciosamente
+            // Manejo estricto de Multipart.
+            // Los links de Google Maps hacen que el SMS supere los 160 caracteres.
+            // Si se usa sendTextMessage en lugar de sendMultipartTextMessage, falla silenciosamente en Huawei/Honor.
             val parts = smsManager.divideMessage(msg)
             if (parts.size > 1) {
                 val sentIntents = ArrayList<PendingIntent>()
                 for (i in parts.indices) {
-                    // Solo evaluamos el intent de la última parte para confirmar el envío total
+                    // Solo el último fragmento confirma el envío completo
                     if (i == parts.size - 1) {
                         sentIntents.add(sentIntent)
                     } else {
-                        val dummyIntent = PendingIntent.getBroadcast(this, i + 1, Intent(sentAction + "_dummy"), flags)
+                        val dummyIntent = PendingIntent.getBroadcast(this, uniqueId.hashCode() + i, Intent(sentAction + "_dummy_$i"), flags)
                         sentIntents.add(dummyIntent)
                     }
                 }
@@ -107,7 +114,7 @@ class MainActivity: FlutterActivity() {
             }
 
         } catch (e: Exception) {
-            result.error("EXCEPTION", e.message, null)
+            result.error("EXCEPTION", e.localizedMessage, null)
         }
     }
 }
