@@ -1,4 +1,5 @@
-import 'dart:async'; // Necesario para StreamSubscription
+// lib/presentation/screens/home/dashboard_screen.dart
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,15 +9,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../app_routes.dart';
 
-// --- SERVICIOS (Arquitectura Limpia) ---
+// --- SERVICIOS CON CLEAN ARCHITECTURE ---
 import '../../../data/services/location_service.dart';
 import '../../../data/services/sos_service.dart';
 import '../../../data/services/simulation_service.dart';
 import '../../../data/services/permission_service.dart';
-import '../../../data/services/vibration_service.dart';    // ✅ NUEVO
-import '../../../data/services/notification_service.dart'; // ✅ NUEVO
+import '../../../data/services/vibration_service.dart';
+import '../../../data/services/notification_service.dart';
 
-// --- COMPONENTES UI ---
+// --- COMPONENTES ---
 import '../../widgets/emergency_button.dart';
 import '../../widgets/side_menu.dart';
 import '../../widgets/sensor_card.dart';
@@ -31,39 +32,33 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
-
-  // 1. 🛠️ INSTANCIAS DE SERVICIOS (Inyección de Dependencias Manual)
   final LocationService _locationService = LocationService();
   final SosService _sosService = SosService();
   final SimulationService _simulationService = SimulationService();
   final PermissionService _permissionService = PermissionService();
-  final VibrationService _vibrationService = VibrationService();       // ✅
-  final NotificationService _notificationService = NotificationService(); // ✅
+  final VibrationService _vibrationService = VibrationService();
+  final NotificationService _notificationService = NotificationService();
 
-  // 2. 📡 CONEXIÓN A DATOS
   final DocumentReference _sensorDoc = FirebaseFirestore.instance
       .collection('sensores')
       .doc('monitor_principal');
 
-  StreamSubscription<DocumentSnapshot>? _sensorSubscription; // Controla la escucha
+  StreamSubscription<DocumentSnapshot>? _sensorSubscription;
 
-  // 3. 📊 ESTADO DE LA UI
-  // Variables de Sensores
-  double riverLevel = 1.2;
-  double rainLevel = 0.0;
-  double vibrationIntensity = 0.0;
-  double iaConfidence = 0.0;
-  int alertLevel = 0; // Nivel actual (0, 1, 2)
+  int alertLevel = 0;
+  int _previousAlertLevel = 0;
+  bool isConnected = false;
 
-  // Variables de Lógica de Control
-  int _previousAlertLevel = 0; // Para detectar cambios de estado
-  bool isConnected = false;    // Para mostrar estado en UI
-
-  // Variables de Usuario
   String userName = "Usuario";
   bool sosEnabled = true;
   bool realTime = false;
   bool _missingPermissions = true;
+
+  double vibrationIntensity = 0.0;
+  double rainLevel = 0.0;
+  double riverLevel = 1.2;
+  double iaConfidence = 0.0;
+  String etaHuayco = "";
 
   final ImagePicker _picker = ImagePicker();
 
@@ -71,21 +66,17 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initSystem(); // Inicialización limpia
+    _initApp();
   }
 
-  // Carga inicial secuencial
-  Future<void> _initSystem() async {
+  Future<void> _initApp() async {
+    await _notificationService.init();
     await _permissionService.requestAllPermissions();
     await _checkPermissionsStatus();
-    await _loadUserPreferences();
+    _loadUserData();
 
-    // Inicializamos notificaciones
-    await _notificationService.init();
-
-    // 🔥 SUSCRIPCIÓN ACTIVA: Escucha cambios en Firebase
     _sensorSubscription = _sensorDoc.snapshots().listen((snapshot) {
-      if (snapshot.exists) {
+      if (snapshot.exists && mounted) {
         _processSensorData(snapshot.data() as Map<String, dynamic>);
       }
     }, onError: (e) {
@@ -94,13 +85,12 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     });
   }
 
-  // ... (Funciones auxiliares _checkPermissionsStatus y _loadUserPreferences se mantienen igual)
   Future<void> _checkPermissionsStatus() async {
     bool hasAll = await _permissionService.hasAllPermissions();
     if (mounted) setState(() => _missingPermissions = !hasAll);
   }
 
-  Future<void> _loadUserPreferences() async {
+  void _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
@@ -111,94 +101,103 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissionsStatus();
+    }
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _sensorSubscription?.cancel(); // ⚠️ Importante cancelar para evitar fugas de memoria
+    _sensorSubscription?.cancel();
     super.dispose();
   }
-  // ---------------------------------------------------------------------------
-  // 🧠 CEREBRO LÓGICO: PROCESAMIENTO DE DATOS EN TIEMPO REAL
-  // ---------------------------------------------------------------------------
+
   void _processSensorData(Map<String, dynamic> data) {
     if (!mounted) return;
 
-    // 1. Extraer datos con seguridad (valores por defecto si son nulos)
     double newRiver = (data['nivel_rio'] ?? 1.2).toDouble();
     double newRain = (data['precipitacion'] ?? 0.0).toDouble();
     double newVibration = (data['vibracion'] ?? 0.0).toDouble();
     double newConfidence = (data['probabilidad_huayco'] ?? 0.0).toDouble();
     int newAlertLevel = (data['nivel_alerta'] ?? 0).toInt();
 
-    // 2. Detectar CAMBIO CRÍTICO de Estado (De Seguro/Precaución -> PELIGRO)
-    if (newAlertLevel == 2 && _previousAlertLevel < 2) {
-      _triggerEmergencyProtocols(); // 🔥 ¡ACTIVAR PROTOCOLOS!
-    } else if (newAlertLevel < 2 && _previousAlertLevel == 2) {
-      // Si bajó el nivel, detenemos la vibración
-      _vibrationService.stopVibration();
+    if (newAlertLevel != _previousAlertLevel) {
+      if (newAlertLevel == 0) {
+        _vibrationService.stopVibration();
+        _locationService.stopTracking();
+      } else if (newAlertLevel == 1) {
+        _locationService.stopTracking();
+        _vibrationService.startPrecautionVibration();
+        _notificationService.showPrecautionNotification();
+      } else if (newAlertLevel == 2) {
+        _triggerEmergencyProtocols();
+      }
     }
 
-    // 3. Actualizar la UI
     setState(() {
       riverLevel = newRiver;
       rainLevel = newRain;
       vibrationIntensity = newVibration;
       iaConfidence = newConfidence;
       alertLevel = newAlertLevel;
-      _previousAlertLevel = newAlertLevel; // Guardar estado actual para la próxima comparación
+      _previousAlertLevel = newAlertLevel;
       isConnected = true;
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // 🔥 PROTOCOLOS DE EMERGENCIA AUTOMÁTICOS
-  // ---------------------------------------------------------------------------
   Future<void> _triggerEmergencyProtocols() async {
     debugPrint("🚨 ALERTA ROJA - ACTIVANDO PROTOCOLOS");
 
-    // 1. Vibración (Corrección: usa 'startDangerVibration')
     _vibrationService.startDangerVibration();
-
-    // 2. Notificación (Corrección: usa 'showDangerNotification' sin argumentos)
     _notificationService.showDangerNotification();
 
-    // 3. SOS Automático (Si está habilitado)
+    if (realTime && !_locationService.isTracking) {
+      _locationService.startTracking(onPositionUpdate: (pos) {
+        if (mounted) setState(() {});
+      });
+    }
+
     if (sosEnabled) {
-      final position = await _locationService.getCurrentOrLastPosition();
+      final prefs = await SharedPreferences.getInstance();
+      bool autoSend = prefs.getBool('sos_auto_send') ?? false;
 
-      _sosService.sendSOSAlert(
-          position: position,
-          userName: userName,
-          isAuto: true,
-          isTracking: _locationService.isTracking
-      );
+      if (autoSend) {
+        final position = await _locationService.getCurrentOrLastPosition();
+        if (position != null) {
+          _sosService.sendSOSAlert(
+              position: position,
+              userName: userName,
+              isAuto: true,
+              isTracking: _locationService.isTracking
+          );
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("🆘 Alerta SOS enviada automáticamente."),
-              backgroundColor: Colors.redAccent,
-              duration: Duration(seconds: 5),
-            )
-        );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("🆘 Alerta SOS enviada automáticamente."),
+                  backgroundColor: Colors.redAccent,
+                  duration: Duration(seconds: 5),
+                )
+            );
+          }
+        }
       }
     }
   }
-  // ---------------------------------------------------------------------------
-  // 🕹️ FUNCIONES DE USUARIO (Simulación, SOS Manual, Cámara)
-  // ---------------------------------------------------------------------------
 
-  // --- SIMULACIÓN LOCAL (Sin escribir en Firebase para no afectar a otros) ---
   void _runSimulation() {
     final simulatedData = _simulationService.getNextSimulationState(alertLevel);
-    // Inyectamos los datos simulados directamente al procesador como si vinieran de Firebase
     _processSensorData(simulatedData);
 
     ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("🐛 Simulación: Datos inyectados localmente"))
+        const SnackBar(
+          content: Text("🐛 Simulación: Datos inyectados localmente"),
+        )
     );
   }
 
-  // --- DIÁLOGO DE ADVERTENCIA DE PERMISOS ---
   void _showPermissionWarningDialog() {
     showDialog(
         context: context,
@@ -222,7 +221,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     );
   }
 
-  // --- SOS MANUAL (Botón Rojo) ---
   void _handleSosPress() {
     showDialog(
       context: context,
@@ -242,7 +240,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           TextButton.icon(
               onPressed: () {
                 Navigator.pop(context);
-                Navigator.pushNamed(context, AppRoutes.editSos).then((_) => _loadUserPreferences());
+                Navigator.pushNamed(context, AppRoutes.editSos).then((_) => _loadUserData());
               },
               icon: const Icon(Icons.settings),
               label: const Text("Configurar")
@@ -277,7 +275,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
-  // --- CÁMARA ---
   Future<void> _takePhoto() async {
     bool hasCam = await Permission.camera.isGranted;
     if (!hasCam) {
@@ -305,7 +302,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           children: [
             const Text("¿Enviar esta evidencia al centro de monitoreo?"),
             const SizedBox(height: 10),
-            Image.file(imageFile, height: 200, fit: BoxFit.cover),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(imageFile, height: 200, width: double.infinity, fit: BoxFit.cover),
+            ),
           ],
         ),
         actions: [
@@ -321,190 +321,133 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       ),
     );
   }
-  // ---------------------------------------------------------------------------
-  // 🎨 UI HELPERS (Funciones Visuales)
-  // ---------------------------------------------------------------------------
 
   Color getStatusColor(int level) {
-    if (level == 0) return Colors.green;
-    if (level == 1) return Colors.orange;
-    return const Color(0xFFCF0A2C); // Rojo Intenso (Alerta)
+    if (level == 0) return const Color(0xFF2E7D32);
+    if (level == 1) return const Color(0xFFEF6C00);
+    return const Color(0xFFD32F2F);
   }
 
   String getStatusText(int level) {
     if (level == 0) return "ZONA SEGURA";
     if (level == 1) return "PRECAUCIÓN";
-    return "¡PELIGRO DE HUAYCO!";
+    return "¡PELIGRO INMINENTE!";
   }
 
-  // ---------------------------------------------------------------------------
-  // 📱 CONSTRUCCIÓN DE PANTALLA
-  // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    // Calculamos el ETA (Tiempo estimado) basado en el nivel de alerta
-    String etaDisplay = alertLevel == 2
+    String etaHuayco = alertLevel == 2
         ? "IMPACTO INMINENTE"
         : (alertLevel == 1 ? "Posible en 45 min" : "");
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
       drawer: const SideMenu(),
-
-      body: CustomScrollView(
-        slivers: [
-          // --- APP BAR DINÁMICA (Cambia de color con la alerta) ---
-          SliverAppBar(
-            expandedHeight: 200.0,
-            floating: false,
-            pinned: true,
-            backgroundColor: getStatusColor(alertLevel),
-            foregroundColor: Colors.white,
-            actions: [
-              IconButton(
-                  icon: const Icon(Icons.help_outline),
-                  tooltip: "Guía de Seguridad",
-                  onPressed: () => showDialog(context: context, builder: (_) => const SafetyGuideDialog())
-              ),
-              // Botón "Simular" (Solo para pruebas)
-              IconButton(
-                icon: const Icon(Icons.bug_report),
-                tooltip: "Simular Evento",
-                onPressed: _runSimulation,
-              ),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              centerTitle: true,
-              title: Text(getStatusText(alertLevel),
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, shadows: [Shadow(blurRadius: 2, color: Colors.black45, offset: Offset(1, 1))])),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [getStatusColor(alertLevel), getStatusColor(alertLevel).withOpacity(0.8)],
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 40),
-                    // Icono animado (podrías agregar animación aquí luego)
-                    Icon(alertLevel == 2 ? Icons.campaign : Icons.verified_user,
-                        size: 60, color: Colors.white),
-
-                    if (alertLevel > 0) ...[
-                      const SizedBox(height: 8),
-                      Text(etaDisplay,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      if (iaConfidence > 0)
-                        Text("IA Confianza: ${(iaConfidence*100).toStringAsFixed(0)}%",
-                            style: const TextStyle(color: Colors.white70, fontSize: 10)),
-                    ]
-                  ],
-                ),
-              ),
-            ),
+      appBar: AppBar(
+        title: const Text("Monitor Apu Waqay"),
+        backgroundColor: getStatusColor(alertLevel),
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+              icon: const Icon(Icons.help_outline),
+              tooltip: "Guía de Seguridad",
+              onPressed: () => showDialog(context: context, builder: (_) => const SafetyGuideDialog())
           ),
-
-          // --- ACCESO RÁPIDO A MAPA ---
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: ElevatedButton.icon(
-                onPressed: () { if (widget.onMapTap != null) widget.onMapTap!(); },
-                icon: const Icon(Icons.people_alt),
-                label: const Text("Ver Ubicaciones Compartidas"),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.blue[800],
-                  elevation: 2,
-                ),
-              ),
-            ),
-          ),
-
-          // --- GRILLA DE SENSORES EN TIEMPO REAL ---
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
-            sliver: SliverGrid.count(
-              crossAxisCount: 2,
-              crossAxisSpacing: 15,
-              mainAxisSpacing: 15,
-              children: [
-                SensorCard(
-                    title: "Nivel Río",
-                    value: "${riverLevel.toStringAsFixed(1)} m",
-                    unit: "Metros",
-                    icon: Icons.waves,
-                    isCritical: riverLevel > 3.0
-                ),
-                SensorCard(
-                    title: "Lluvia",
-                    value: "${rainLevel.toStringAsFixed(0)} mm",
-                    unit: "Acumulada",
-                    icon: Icons.cloud,
-                    isCritical: rainLevel > 100
-                ),
-                SensorCard(
-                    title: "Vibración",
-                    value: vibrationIntensity.toStringAsFixed(1),
-                    unit: "Hz",
-                    icon: Icons.vibration,
-                    isCritical: vibrationIntensity > 5
-                ),
-                // Tarjeta de Estado del Sistema
-                SensorCard(
-                    title: "Sistema",
-                    value: isConnected ? (_locationService.isTracking ? "RASTREO ON" : "ONLINE") : "OFFLINE",
-                    unit: "Estado",
-                    icon: isConnected ? Icons.cloud_done : Icons.cloud_off,
-                    isCritical: !isConnected
-                ),
-              ],
-            ),
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            tooltip: "Simular Evento",
+            onPressed: _runSimulation,
           ),
         ],
       ),
-
-      // --- BOTONES FLOTANTES DE ACCIÓN ---
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (_missingPermissions && sosEnabled)
-            FloatingActionButton.small(
-              heroTag: "warn",
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              child: const Icon(Icons.warning_amber, color: Colors.amber, size: 40),
-              onPressed: () => _permissionService.requestAllPermissions(),
+          if (_missingPermissions && sosEnabled) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: FloatingActionButton.small(
+                heroTag: "btn_warning",
+                elevation: 0,
+                backgroundColor: Colors.transparent,
+                onPressed: _showPermissionWarningDialog,
+                child: const Icon(Icons.warning_amber, color: Colors.amber, size: 40),
+              ),
             ),
-          const SizedBox(width: 10),
+          ],
           FloatingActionButton(
-            heroTag: "cam",
+            heroTag: "btn_camara",
+            onPressed: _takePhoto,
             backgroundColor: Colors.white,
-            child: const Icon(Icons.camera_alt, color: Colors.black),
-            onPressed: () async {
-              // Lógica simple de cámara
-              await Permission.camera.request();
-              final XFile? photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 50);
-              if (photo != null && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ Foto guardada")));
-              }
-            },
+            tooltip: "Reportar Huayco (Cámara)",
+            child: const Icon(Icons.camera_alt, color: Colors.black87),
           ),
           const SizedBox(width: 15),
           EmergencyButton(
             alertLevel: alertLevel,
             sosEnabled: sosEnabled,
-            onConfigure: () => Navigator.pushNamed(context, AppRoutes.editSos).then((_) => _loadUserPreferences()),
+            onConfigure: () {
+              Navigator.pushNamed(context, AppRoutes.editSos).then((_) => _loadUserData());
+            },
             onSendManualSos: () async {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enviando alerta manual...")));
-              final pos = await _locationService.getCurrentOrLastPosition();
-              await _sosService.sendSOSAlert(position: pos, userName: userName, isAuto: false, isTracking: false);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Obteniendo GPS preciso y enviando alerta...")));
+              final position = await _locationService.getCurrentOrLastPosition();
+              int successCount = await _sosService.sendSOSAlert(
+                  position: position,
+                  userName: userName,
+                  isAuto: false,
+                  isTracking: _locationService.isTracking
+              );
+              if (mounted && successCount > 0) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("✅ Alerta SOS enviada a $successCount contactos."), backgroundColor: Colors.green));
+              }
             },
           ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(30),
+            decoration: BoxDecoration(
+                color: getStatusColor(alertLevel),
+                borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(40), bottomRight: Radius.circular(40))
+            ),
+            child: Column(children: [
+              Icon(alertLevel == 2 ? Icons.campaign : Icons.verified_user, size: 80, color: Colors.white),
+              const SizedBox(height: 10),
+              Text(getStatusText(alertLevel), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
+              if (alertLevel == 2) Text(etaHuayco, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              if (alertLevel > 0 && iaConfidence > 0) Text("Detectado por IA (${(iaConfidence*100).toStringAsFixed(0)}%)", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: ElevatedButton.icon(
+                onPressed: () { if (widget.onMapTap != null) widget.onMapTap!(); },
+                icon: const Icon(Icons.people_alt),
+                label: const Text("Ver Ubicaciones Compartidas"),
+                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50))
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 75),
+              child: GridView.count(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 15,
+                  mainAxisSpacing: 15,
+                  children: [
+                    SensorCard(title: "Nivel Río", value: "${riverLevel.toStringAsFixed(1)} m", unit: "Metros", icon: Icons.waves, isCritical: riverLevel > 3.0),
+                    SensorCard(title: "Lluvia", value: "${rainLevel.toStringAsFixed(0)} mm", unit: "Acumulada", icon: Icons.cloud, isCritical: rainLevel > 100),
+                    SensorCard(title: "Vibración", value: vibrationIntensity.toStringAsFixed(1), unit: "Hz", icon: Icons.vibration, isCritical: vibrationIntensity > 5),
+                    SensorCard(title: "Rastreo", value: _locationService.isTracking ? "ACTIVO" : "INACTIVO", unit: "GPS", icon: _locationService.isTracking ? Icons.radar : Icons.location_disabled, isCritical: false),
+                  ]
+              ),
+            ),
+          )
         ],
       ),
     );
